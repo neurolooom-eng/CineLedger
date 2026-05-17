@@ -31,7 +31,7 @@ const CONFIG_HEADERS = [
 const BILL_HEADERS = [
   'UniqueID', 'Bill No', 'Date', 'Department', 'Sub-category',
   'Paid By', 'Paid To', 'Amount', 'Payment Mode',
-  'Transaction Ref', 'Status', 'Approved By', 'Description'
+  'Transaction Ref', 'Status', 'Approved By', 'Description', 'Attachments'
 ];
 
 // =============================================================
@@ -149,7 +149,86 @@ function syncProject(projectName, prefix, bills) {
     bs.getRange(2, 1, lastRow - 1, Math.max(lastCol, BILL_HEADERS.length)).clearContent();
   }
 
-  // Write bills
+  // =================================================================
+  // ATTACHMENT UPLOAD — runs BEFORE writing bills so we can include
+  // each bill's attachment URLs in its row.
+  //
+  // For each bill with attachments (base64), upload to Drive under
+  // {project folder}/Attachments/. Files named {UniqueID}_{originalName}.
+  // =================================================================
+  const folder   = DriveApp.getFolderById(folderId);
+  let attachFolder = null;
+  const newUploads  = {};  // billId -> [{ index, name, url, id }]
+  const uploadErrors = []; // collect per-attachment errors (don't abort the whole sync)
+
+  for (let bi = 0; bi < bills.length; bi++) {
+    const bill = bills[bi];
+    if (!bill.attachments || bill.attachments.length === 0) continue;
+    for (let ai = 0; ai < bill.attachments.length; ai++) {
+      const att = bill.attachments[ai];
+      // Skip if already uploaded (has driveId/driveUrl from a prior sync)
+      if (att.driveId || att.driveUrl) continue;
+      // Need a base64 data URL to upload
+      if (!att.preview) {
+        uploadErrors.push({ billId: bill.id, name: att.name, reason: 'no preview data' });
+        continue;
+      }
+      const m = String(att.preview).match(/^data:([^;]+);base64,(.+)$/);
+      if (!m) {
+        uploadErrors.push({ billId: bill.id, name: att.name, reason: 'malformed data URL' });
+        continue;
+      }
+
+      try {
+        if (!attachFolder) {
+          const fIt = folder.getFoldersByName('Attachments');
+          attachFolder = fIt.hasNext() ? fIt.next() : folder.createFolder('Attachments');
+        }
+
+        const mimeType = m[1];
+        const base64   = m[2];
+        const safeName = (att.name || 'file').replace(/[\/\\:*?"<>|]/g, '_');
+        const fileName = (bill.id || 'NOID') + '_' + safeName;
+
+        // Reuse if a file with this exact name already exists
+        const existing = attachFolder.getFilesByName(fileName);
+        let file;
+        if (existing.hasNext()) {
+          file = existing.next();
+        } else {
+          const blob = Utilities.newBlob(Utilities.base64Decode(base64), mimeType, fileName);
+          file = attachFolder.createFile(blob);
+          try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
+        }
+
+        if (!newUploads[bill.id]) newUploads[bill.id] = [];
+        newUploads[bill.id].push({
+          index: ai,
+          name: att.name,
+          url: file.getUrl(),
+          id: file.getId()
+        });
+      } catch (e) {
+        uploadErrors.push({ billId: bill.id, name: att.name, reason: e.message || String(e) });
+      }
+    }
+  }
+
+  // Helper: collect all attachment URLs for a given bill (newly uploaded + pre-existing)
+  function getBillAttachmentUrls(bill) {
+    if (!bill.attachments || bill.attachments.length === 0) return [];
+    const urls = [];
+    const ups = newUploads[bill.id] || [];
+    const upByIdx = {};
+    ups.forEach(u => { upByIdx[u.index] = u; });
+    bill.attachments.forEach((att, i) => {
+      const url = upByIdx[i] ? upByIdx[i].url : att.driveUrl;
+      if (url) urls.push(url);
+    });
+    return urls;
+  }
+
+  // Write bills (now with Attachments column populated)
   if (bills.length > 0) {
     const rows = bills.map(b => [
       b.id || '',
@@ -164,66 +243,15 @@ function syncProject(projectName, prefix, bills) {
       b.txnId || b.utr || b.chequeNo || b.upiId || (b.cardLast4 ? '**** ' + b.cardLast4 : ''),
       b.status || '',
       b.approvedBy || '',
-      b.description || ''
+      b.description || '',
+      getBillAttachmentUrls(b).join('\n')   // newline-separated URLs in last column
     ]);
     bs.getRange(2, 1, rows.length, BILL_HEADERS.length).setValues(rows);
+    // Wrap text on the Attachments column so multiple links display on multiple lines
+    bs.getRange(2, BILL_HEADERS.length, rows.length, 1).setWrap(true);
   }
 
   bs.autoResizeColumns(1, BILL_HEADERS.length);
-
-  // =================================================================
-  // ATTACHMENT UPLOAD
-  // For each bill with attachments (base64), upload to Drive under
-  // {project folder}/Attachments/. Files named {UniqueID}_{originalName}.
-  // Maintain an "Attachments" sheet next to "Bills" listing every file.
-  // =================================================================
-  const folder   = DriveApp.getFolderById(folderId);
-  let attachFolder = null;
-  const newUploads = {}; // billId -> [{ index, name, url, id }]
-
-  for (let bi = 0; bi < bills.length; bi++) {
-    const bill = bills[bi];
-    if (!bill.attachments || bill.attachments.length === 0) continue;
-    for (let ai = 0; ai < bill.attachments.length; ai++) {
-      const att = bill.attachments[ai];
-      // Skip if already uploaded (has driveId/driveUrl from a prior sync)
-      if (att.driveId || att.driveUrl) continue;
-      // Need a base64 data URL to upload
-      if (!att.preview) continue;
-      const m = String(att.preview).match(/^data:([^;]+);base64,(.+)$/);
-      if (!m) continue;
-
-      if (!attachFolder) {
-        const fIt = folder.getFoldersByName('Attachments');
-        attachFolder = fIt.hasNext() ? fIt.next() : folder.createFolder('Attachments');
-      }
-
-      const mimeType = m[1];
-      const base64   = m[2];
-      const safeName = (att.name || 'file').replace(/[\/\\:*?"<>|]/g, '_');
-      const fileName = (bill.id || 'NOID') + '_' + safeName;
-
-      // Reuse if a file with this exact name already exists
-      const existing = attachFolder.getFilesByName(fileName);
-      let file;
-      if (existing.hasNext()) {
-        file = existing.next();
-      } else {
-        const blob = Utilities.newBlob(Utilities.base64Decode(base64), mimeType, fileName);
-        file = attachFolder.createFile(blob);
-        // Make the file accessible to anyone with the link, so the URLs work outside of Drive
-        try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch (e) {}
-      }
-
-      if (!newUploads[bill.id]) newUploads[bill.id] = [];
-      newUploads[bill.id].push({
-        index: ai,
-        name: att.name,
-        url: file.getUrl(),
-        id: file.getId()
-      });
-    }
-  }
 
   // Attachments sheet: list every file across all bills for this project
   let attSheet = ss.getSheetByName('Attachments');
@@ -272,7 +300,8 @@ function syncProject(projectName, prefix, bills) {
     configSheetId: config.getParent().getId(),
     configSheetUrl: config.getParent().getUrl(),
     billsSynced: bills.length,
-    attachmentsUploaded: newUploads
+    attachmentsUploaded: newUploads,
+    attachmentErrors: uploadErrors
   };
 }
 

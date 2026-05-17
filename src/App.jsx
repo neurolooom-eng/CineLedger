@@ -101,7 +101,7 @@ const PROJECT_COLORS = [
 // ============================================================
 const DRIVE_PARENT_FOLDER_ID = '1Q-eSFalmrtrzZVh0Ukgrl08S9RT8bF2G';
 // Seed value for the Apps Script URL. Set to '' if you don't want a default.
-const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyz8bfG08Tv5aZKJrpeuzyu65EFLm9v9quA2GJDqG7FBybD6KFTn6pvVbD8Eg7uT4IgSg/exec';
+const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyOB0FXVnajr8wU1YOKZAewXWOZPxJjqQbxXW9sMExgjCSykK8iKg99vw0-zN9K2hQV-A/exec';
 
 const driveAdapter = {
   async call(scriptUrl, action, payload = {}) {
@@ -385,15 +385,16 @@ export default function App() {
 
   // Sync this project's bills to Drive — creates folder + sheet on first run
   // (idempotent on the Apps Script side), then writes all bills for the project.
-  const syncProjectBills = async (projectId) => {
+  const syncProjectBills = async (projectId, opts = {}) => {
     const project = projects.find(p => p.id === projectId);
     if (!project) return { ok: false };
     if (!settings.scriptUrl) {
-      flashToast('info', 'Set the Apps Script URL in Settings first');
+      if (!opts.silent) flashToast('info', 'Set the Apps Script URL in Settings first');
       return { ok: false };
     }
+    const sourceBills = opts.billsOverride || bills;
     patchProject(projectId, { driveStatus: 'syncing', driveError: null });
-    const projectBills = bills.filter(b => b.project && b.project.toLowerCase() === project.name.toLowerCase());
+    const projectBills = sourceBills.filter(b => b.project && b.project.toLowerCase() === project.name.toLowerCase());
     try {
       const r = await driveAdapter.syncProject(settings.scriptUrl, project.name, project.prefix, projectBills);
       patchProject(projectId, {
@@ -411,7 +412,7 @@ export default function App() {
       // Apply newly-uploaded Drive URLs onto each bill's attachments
       const uploads = r.attachmentsUploaded || {};
       if (Object.keys(uploads).length > 0) {
-        const updated = bills.map(b => {
+        const updated = sourceBills.map(b => {
           const ups = uploads[b.id];
           if (!ups || ups.length === 0 || !b.attachments) return b;
           const byIdx = {};
@@ -425,11 +426,21 @@ export default function App() {
         });
         persistBills(updated);
       }
-      flashToast('success', `Synced ${r.billsSynced ?? projectBills.length} bill${(r.billsSynced ?? projectBills.length) === 1 ? '' : 's'} to Drive`);
+      const errs = r.attachmentErrors || [];
+      if (!opts.silent) {
+        if (errs.length > 0) {
+          flashToast('info', `Synced ${r.billsSynced} bills · ${errs.length} attachment${errs.length === 1 ? '' : 's'} failed`);
+        } else {
+          flashToast('success', `Synced ${r.billsSynced ?? projectBills.length} bill${(r.billsSynced ?? projectBills.length) === 1 ? '' : 's'} to Drive`);
+        }
+      } else if (errs.length > 0) {
+        // Silent mode still surfaces attachment problems
+        flashToast('info', `Synced — ${errs.length} attachment${errs.length === 1 ? '' : 's'} failed to upload`);
+      }
       return { ok: true, ...r };
     } catch (e) {
       patchProject(projectId, { driveStatus: 'failed', driveError: String(e.message || e) });
-      flashToast('info', 'Sync failed — open project for details');
+      if (!opts.silent) flashToast('info', 'Sync failed — open project for details');
       return { ok: false, error: e.message };
     }
   };
@@ -567,8 +578,25 @@ export default function App() {
     nextParties = addPartyIfNew(bill.paidTo, nextParties);
 
     const newBill = { ...bill, id: uid(), createdAt: new Date().toISOString() };
-    persistBills([newBill, ...bills]);
-    flashToast('success', 'Bill saved to ledger');
+    const nextBills = [newBill, ...bills];
+    persistBills(nextBills);
+    flashToast('success', 'Bill saved · syncing to Drive…');
+
+    // Auto-sync this project to Drive in the background
+    if (settings.scriptUrl && bill.project) {
+      // Use a microtask so state updates flush first, then locate the project
+      Promise.resolve().then(() => {
+        const proj = projects.find(p => p.name.toLowerCase() === bill.project.toLowerCase());
+        if (proj) {
+          // Pass nextBills explicitly so the bill we just added is included
+          syncProjectBills(proj.id, { silent: true, billsOverride: nextBills })
+            .then(r => {
+              if (r && r.ok) flashToast('success', 'Synced to Drive');
+            })
+            .catch(e => console.warn('Auto-sync failed:', e));
+        }
+      });
+    }
   };
 
   const deleteBill = (id) => {
