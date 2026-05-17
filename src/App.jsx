@@ -1786,6 +1786,7 @@ function LedgerView({ bills, onDelete, onNewBill, projectFilter }) {
         <div className="flex border rounded-xl p-1 gap-1" style={{ background: 'var(--surface-3)', borderColor: 'var(--border)' }}>
           <ViewToggle active={view === 'department'} onClick={() => { setView('department'); setSelected(null); }} icon={Briefcase} label="Department" />
           <ViewToggle active={view === 'individual'} onClick={() => { setView('individual'); setSelected(null); }} icon={User}      label="Individual" />
+          <ViewToggle active={view === 'table'}      onClick={() => { setView('table');      setSelected(null); }} icon={FileText}  label="Table" />
         </div>
       </div>
 
@@ -1796,6 +1797,8 @@ function LedgerView({ bills, onDelete, onNewBill, projectFilter }) {
           <Search className="w-10 h-10 mx-auto mb-3 opacity-50" />
           <div>No matches for "{query}"</div>
         </div>
+      ) : view === 'table' ? (
+        <AllTransactionsTable bills={filtered} projects={[]} onDelete={onDelete} />
       ) : (
         <div className="space-y-3">
           {groups.map(g => (
@@ -1863,6 +1866,171 @@ function EmptyState({ onNewBill }) {
 // ============================================================
 // LEDGER CARDS + BILL ROW
 // ============================================================
+function AllTransactionsTable({ bills, onDelete }) {
+  const [expanded, setExpanded] = useState(null);
+  const sorted = useMemo(() => {
+    return [...bills].sort((a, b) => {
+      const da = new Date(b.date || b.createdAt || 0).getTime();
+      const db = new Date(a.date || a.createdAt || 0).getTime();
+      return da - db; // newest first
+    });
+  }, [bills]);
+
+  const total = sorted.reduce((s, b) => s + (Number(b.amount) || 0), 0);
+
+  return (
+    <div className="rounded-2xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+      {/* Desktop: full table */}
+      <div className="hidden sm:block overflow-x-auto">
+        <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: 'var(--surface-3)' }}>
+              <Th>Date</Th>
+              <Th>Bill No</Th>
+              <Th>Project</Th>
+              <Th>Department</Th>
+              <Th>Paid By</Th>
+              <Th>Paid To</Th>
+              <Th align="right">Amount</Th>
+              <Th>Status</Th>
+              <Th align="center">Files</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((b, i) => {
+              const isOpen = expanded === b.id;
+              return (
+                <React.Fragment key={b.id}>
+                  <tr
+                    onClick={() => setExpanded(isOpen ? null : b.id)}
+                    style={{
+                      background: isOpen ? 'var(--surface-2)' : (i % 2 ? 'var(--surface)' : 'transparent'),
+                      borderTop: '1px solid var(--border-soft)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <Td>{b.date}</Td>
+                    <Td mono>
+                      <span className="px-1.5 py-0.5 rounded text-[11px]"
+                            style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }}>
+                        {b.billNumber || (b.id ? String(b.id).slice(-8) : '—')}
+                      </span>
+                    </Td>
+                    <Td>{b.project || '—'}</Td>
+                    <Td>
+                      {b.department ? (
+                        <span className="inline-flex items-center gap-1">
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: getDept(b.department)?.color || '#94a3b8' }} />
+                          <span className="text-xs">{b.department}</span>
+                        </span>
+                      ) : '—'}
+                    </Td>
+                    <Td>{b.paidBy || '—'}</Td>
+                    <Td>{b.paidTo || '—'}</Td>
+                    <Td align="right" mono strong>{formatCurrency(b.amount)}</Td>
+                    <Td>
+                      <StatusBadge status={b.status} />
+                    </Td>
+                    <Td align="center">
+                      {b.attachments?.length > 0 ? (
+                        <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: b.attachments.every(a => a.driveUrl) ? '#16A34A' : 'var(--text-3)' }}>
+                          <Paperclip className="w-3 h-3" /> {b.attachments.length}
+                        </span>
+                      ) : '—'}
+                    </Td>
+                  </tr>
+                  {isOpen && (
+                    <tr style={{ background: 'var(--surface)' }}>
+                      <td colSpan={9} style={{ padding: '12px 16px', borderTop: '1px solid var(--border-soft)' }}>
+                        <BillExpanded bill={b} onDelete={onDelete} />
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+            <tr style={{ background: 'var(--surface-3)', fontWeight: 700 }}>
+              <Td colSpan={6}>{sorted.length} transactions</Td>
+              <Td align="right" mono strong>{formatCurrency(total)}</Td>
+              <Td colSpan={2}>&nbsp;</Td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile: stacked cards (BillRow already optimized for narrow screens) */}
+      <div className="sm:hidden divide-y" style={{ borderColor: 'var(--border)' }}>
+        {sorted.map(b => (
+          <div key={b.id} style={{ borderColor: 'var(--border)' }}>
+            <BillRow bill={b} viewMode="department" onDelete={onDelete} />
+          </div>
+        ))}
+        <div className="p-3 flex items-center justify-between" style={{ background: 'var(--surface-3)', fontWeight: 700 }}>
+          <span className="text-xs">{sorted.length} transactions</span>
+          <span className="font-mono text-sm">{formatCurrency(total)}</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Inline detail view used inside the table when a row is expanded
+function BillExpanded({ bill, onDelete }) {
+  return (
+    <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1.5 text-xs">
+      {bill.category    && <DetailRow k="Sub-category" v={bill.category} />}
+      {bill.description && <DetailRow k="Description"  v={bill.description} />}
+      {bill.approvedBy  && <DetailRow k="Approved By"  v={bill.approvedBy} />}
+      {bill.paymentMode && <DetailRow k="Pay Mode"     v={bill.paymentMode} />}
+      {bill.chequeNo    && <DetailRow k="Cheque No"    v={bill.chequeNo} mono />}
+      {bill.bank        && <DetailRow k="Bank"         v={bill.bank} />}
+      {bill.upiId       && <DetailRow k="UPI ID"       v={bill.upiId} />}
+      {bill.txnId       && <DetailRow k="Txn ID"       v={bill.txnId} mono />}
+      {bill.utr         && <DetailRow k="UTR"          v={bill.utr} mono />}
+      {bill.cardLast4   && <DetailRow k="Card"         v={'•••• ' + bill.cardLast4} mono />}
+      {bill.attachments?.length > 0 && (
+        <div className="sm:col-span-2 pt-2 mt-1 border-t" style={{ borderColor: 'var(--border)' }}>
+          <div className="uppercase tracking-wider text-[10px] font-bold mb-2 flex items-center justify-between" style={{ color: 'var(--text-3)' }}>
+            <span>Attachments ({bill.attachments.length})</span>
+            {bill.attachments.every(a => a.driveUrl) && (
+              <span className="inline-flex items-center gap-1" style={{ color: '#16A34A' }}>
+                <Cloud className="w-3 h-3" /> on Drive
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {bill.attachments.map((att, i) => <AttachmentChip key={i} att={att} />)}
+          </div>
+        </div>
+      )}
+      <div className="sm:col-span-2 pt-2 mt-1 border-t flex justify-end" style={{ borderColor: 'var(--border)' }}>
+        <button onClick={(e) => { e.stopPropagation(); if (window.confirm('Remove this bill?')) onDelete(bill.id); }}
+                className="text-[11px] font-semibold inline-flex items-center gap-1" style={{ color: '#EF4444' }}>
+          <Trash2 className="w-3 h-3" /> Delete
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  const map = {
+    paid:     { bg: 'rgba(22,163,74,0.15)',  fg: '#16A34A', icon: CheckCircle2 },
+    pending:  { bg: 'rgba(202,138,4,0.18)',  fg: '#CA8A04', icon: Clock },
+    approved: { bg: 'rgba(37,99,235,0.15)',  fg: '#2563EB', icon: FileCheck },
+  };
+  const s = map[status] || { bg: 'var(--surface-3)', fg: 'var(--text-3)', icon: AlertCircle };
+  const Icon = s.icon;
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
+          style={{ background: s.bg, color: s.fg }}>
+      <Icon className="w-2.5 h-2.5" />
+      {status || 'n/a'}
+    </span>
+  );
+}
+
+
 function LedgerCard({ group, view, expanded, onToggle, onDelete }) {
   const dept = view === 'department' ? getDept(group.name) : null;
   const color = dept ? dept.color : '#7C3AED';
@@ -2007,41 +2175,7 @@ function BillRow({ bill, role, viewMode, onDelete }) {
                     )}
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {bill.attachments.map((att, i) => {
-                      const inner = (
-                        <>
-                          <div className="w-8 h-8 rounded flex items-center justify-center overflow-hidden flex-shrink-0 border"
-                               style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
-                            {att.preview
-                              ? <img src={att.preview} className="w-full h-full object-cover" alt="" />
-                              : att.type?.startsWith('image/')
-                                ? <ImageIcon className="w-3.5 h-3.5" style={{ color: 'var(--text-4)' }} />
-                                : <FileIcon className="w-3.5 h-3.5" style={{ color: 'var(--text-4)' }} />}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="truncate text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>{att.name}</div>
-                            {att.driveUrl && (
-                              <div className="text-[10px] flex items-center gap-1" style={{ color: '#16A34A' }}>
-                                <ExternalLink className="w-2.5 h-2.5" /> Open in Drive
-                              </div>
-                            )}
-                          </div>
-                        </>
-                      );
-                      return att.driveUrl ? (
-                        <a key={i} href={att.driveUrl} target="_blank" rel="noopener noreferrer"
-                           className="flex items-center gap-2 p-2 rounded border transition hover:opacity-90"
-                           style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', textDecoration: 'none' }}
-                           onClick={e => e.stopPropagation()}>
-                          {inner}
-                        </a>
-                      ) : (
-                        <div key={i} className="flex items-center gap-2 p-2 rounded border"
-                             style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}>
-                          {inner}
-                        </div>
-                      );
-                    })}
+                    {bill.attachments.map((att, i) => <AttachmentChip key={i} att={att} />)}
                   </div>
                 </div>
               )}
@@ -2057,6 +2191,60 @@ function BillRow({ bill, role, viewMode, onDelete }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// Clickable attachment chip — always opens in a new window/tab.
+// Drive URL when present, otherwise opens the local base64 preview in a popup.
+function AttachmentChip({ att }) {
+  const handleClick = (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (att.driveUrl) {
+      window.open(att.driveUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (att.preview) {
+      // Open the local preview (base64 data URL) in a popup window so the user can view/print
+      const w = window.open('', '_blank', 'width=900,height=720');
+      if (!w) return;
+      const isImg = (att.type || '').startsWith('image/') || att.preview.startsWith('data:image/');
+      const safeName = (att.name || 'attachment').replace(/[<>"]/g, '');
+      const body = isImg
+        ? `<img src="${att.preview}" alt="${safeName}" style="max-width:100%;max-height:100vh;display:block;margin:0 auto;">`
+        : `<iframe src="${att.preview}" style="width:100%;height:100vh;border:0;"></iframe>`;
+      w.document.write(`<!doctype html><html><head><title>${safeName}</title><style>body{margin:0;background:#0a0e27;color:#fff;font-family:system-ui;}h1{font-size:14px;padding:10px 14px;margin:0;background:#161B3A;border-bottom:1px solid rgba(255,255,255,0.1);}</style></head><body><h1>${safeName}</h1>${body}</body></html>`);
+      w.document.close();
+    }
+  };
+
+  const clickable = Boolean(att.driveUrl || att.preview);
+
+  return (
+    <a
+      href={att.driveUrl || att.preview || '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      onClick={handleClick}
+      className={`flex items-center gap-2 p-2 rounded border transition ${clickable ? 'hover:opacity-90 cursor-pointer' : 'cursor-default'}`}
+      style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', textDecoration: 'none' }}
+    >
+      <div className="w-8 h-8 rounded flex items-center justify-center overflow-hidden flex-shrink-0 border"
+           style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+        {att.preview
+          ? <img src={att.preview} className="w-full h-full object-cover" alt="" />
+          : att.type?.startsWith('image/')
+            ? <ImageIcon className="w-3.5 h-3.5" style={{ color: 'var(--text-4)' }} />
+            : <FileIcon className="w-3.5 h-3.5" style={{ color: 'var(--text-4)' }} />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="truncate text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>{att.name}</div>
+        <div className="text-[10px] flex items-center gap-1" style={{ color: att.driveUrl ? '#16A34A' : 'var(--text-3)' }}>
+          <ExternalLink className="w-2.5 h-2.5" />
+          {att.driveUrl ? 'Open in Drive' : (clickable ? 'Open in new window' : 'No preview available')}
+        </div>
+      </div>
+    </a>
   );
 }
 
@@ -2078,40 +2266,75 @@ function fmtMoney(n) {
 // BOOKS SCREEN — accounts-style ledger journal with running balance
 // ============================================================
 function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
-  const filteredBills = useMemo(() => {
+  const [selectedParty, setSelectedParty] = useState('');
+
+  // 1. Bills constrained by project filter (top sticky selector)
+  const projectBills = useMemo(() => {
     if (!selectedProject) return bills;
     return bills.filter(b => b.project && b.project.toLowerCase() === selectedProject.name.toLowerCase());
   }, [bills, selectedProject]);
 
-  // Sort chronologically: date asc, then createdAt asc for same-date stability
+  // 2. All unique party names that appear as either Paid By or Paid To
+  //    Scoped to the currently-selected project (or all projects).
+  const parties = useMemo(() => {
+    const set = new Set();
+    projectBills.forEach(b => {
+      if (b.paidBy) set.add(b.paidBy);
+      if (b.paidTo) set.add(b.paidTo);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [projectBills]);
+
+  // 3. Filter bills involving the selected party (as Paid By OR Paid To)
+  const partyBills = useMemo(() => {
+    if (!selectedParty) return [];
+    const lower = selectedParty.toLowerCase();
+    return projectBills.filter(b =>
+      (b.paidBy && b.paidBy.toLowerCase() === lower) ||
+      (b.paidTo && b.paidTo.toLowerCase() === lower)
+    );
+  }, [projectBills, selectedParty]);
+
+  // 4. Sort by date ASC (and createdAt as tiebreaker)
   const sorted = useMemo(() => {
-    return [...filteredBills].sort((a, b) => {
+    return [...partyBills].sort((a, b) => {
       const da = new Date(a.date || a.createdAt || 0).getTime();
       const db = new Date(b.date || b.createdAt || 0).getTime();
       if (da !== db) return da - db;
       return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
     });
-  }, [filteredBills]);
+  }, [partyBills]);
 
-  // Build journal rows with running balance. Treat every bill as a Debit (expense).
-  // Credit column reserved for future use (refunds / income postings).
+  // 5. Build ledger rows from the selected person's perspective
+  //    Paid By = money OUT  → Debit column
+  //    Paid To = money IN   → Credit column
+  //    Running Balance = sum(Credit) - sum(Debit) → +ve means net received, -ve means net paid out
   const rows = useMemo(() => {
+    if (!selectedParty) return [];
+    const lower = selectedParty.toLowerCase();
     let balance = 0;
     return sorted.map((bill, i) => {
-      const debit  = Number(bill.amount) || 0;
-      const credit = 0;
-      balance += debit - credit;
-      const narrativeBits = [];
-      if (bill.department) narrativeBits.push(bill.department);
-      if (bill.category)   narrativeBits.push(bill.category);
-      if (bill.paidBy)     narrativeBits.push(`paid by ${bill.paidBy}`);
-      if (bill.description) narrativeBits.push(bill.description);
+      const amount = Number(bill.amount) || 0;
+      const isPayer    = bill.paidBy && bill.paidBy.toLowerCase() === lower;
+      const isReceiver = bill.paidTo && bill.paidTo.toLowerCase() === lower;
+      const debit  = isPayer    ? amount : 0;
+      const credit = isReceiver ? amount : 0;
+      balance += credit - debit; // person's net position
+      const counterparty = isPayer ? bill.paidTo : bill.paidBy;
+      // Narrative: Department / Sub-category — Description
+      const narrParts = [];
+      if (bill.department) narrParts.push(bill.department);
+      if (bill.category)   narrParts.push(bill.category);
+      const narrLead = narrParts.join(' / ');
+      const narrative = bill.description
+        ? (narrLead ? `${narrLead} — ${bill.description}` : bill.description)
+        : (narrLead || '—');
       return {
         index: i + 1,
         date: bill.date,
         project: bill.project || '—',
-        name: bill.paidTo || '—',
-        narrative: narrativeBits.join(' · ') || '—',
+        name: counterparty || '—',
+        narrative,
         journalId: bill.billNumber || (bill.id ? String(bill.id).slice(-8) : ''),
         debit,
         credit,
@@ -2119,44 +2342,78 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
         bill,
       };
     });
-  }, [sorted]);
+  }, [sorted, selectedParty]);
 
   const totals = useMemo(() => {
     let td = 0, tc = 0;
     rows.forEach(r => { td += r.debit; tc += r.credit; });
-    return { debit: td, credit: tc, closing: td - tc };
+    return { debit: td, credit: tc, closing: tc - td };
   }, [rows]);
 
-  // For mobile, switch to a card list
   return (
     <div>
       <div className="mb-6">
         <div className="text-[10px] font-bold tracking-[0.2em] uppercase" style={{ color: 'var(--text-3)' }}>Books</div>
         <h1 className="text-3xl sm:text-5xl mb-1" style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.01em', color: 'var(--text)' }}>
-          Ledger
+          Individual Ledger
         </h1>
         <p style={{ color: 'var(--text-3)' }} className="text-sm">
-          Journal entries with running balance · {selectedProject ? selectedProject.name : 'All projects'}
+          Account ledger for a single person · {selectedProject ? selectedProject.name : 'All projects'}
         </p>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <StatCard label="Total Debit"  value={`₹${fmtMoney(totals.debit)}`}  accent="#EA580C" icon={ArrowDownRight} />
-        <StatCard label="Total Credit" value={totals.credit > 0 ? `₹${fmtMoney(totals.credit)}` : '—'} accent="#16A34A" icon={ArrowUpRight} />
-        <StatCard label="Closing Bal." value={`₹${fmtMoney(totals.closing)}`} accent="#E11D74" icon={Wallet} />
+      {/* Person picker */}
+      <div className="mb-6 rounded-2xl border p-4" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+        <label className="text-[10px] uppercase tracking-[0.2em] font-bold mb-2 block" style={{ color: 'var(--text-3)' }}>
+          Show Ledger For
+        </label>
+        {parties.length === 0 ? (
+          <div className="text-sm py-2" style={{ color: 'var(--text-3)' }}>
+            No transactions yet{selectedProject ? ` in ${selectedProject.name}` : ''} — submit a bill from "New Bill" first.
+          </div>
+        ) : (
+          <ComboBox
+            value={selectedParty}
+            onChange={v => setSelectedParty(v)}
+            options={parties}
+            placeholder="Choose a person to view their ledger"
+          />
+        )}
+        {selectedParty && (
+          <div className="mt-2 text-[11px]" style={{ color: 'var(--text-3)' }}>
+            Showing all transactions where <span className="font-semibold" style={{ color: 'var(--text-2)' }}>{selectedParty}</span> is the payer or the payee.
+            Debit = money paid out · Credit = money received · Balance = net position.
+          </div>
+        )}
       </div>
 
-      {rows.length === 0 ? (
-        <div className="py-16 text-center rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+      {!selectedParty ? (
+        <div className="py-20 text-center rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+          <User className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--text-4)' }} />
+          <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-2)' }}>Pick a person</p>
+          <p className="text-xs" style={{ color: 'var(--text-3)' }}>Their account ledger will appear here.</p>
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="py-20 text-center rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
           <FileText className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--text-4)' }} />
-          <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-2)' }}>No entries yet</p>
-          <p className="text-xs" style={{ color: 'var(--text-3)' }}>
-            {selectedProject ? 'This project has no bills yet.' : 'Submit a bill from "New Bill" to see it here.'}
-          </p>
+          <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-2)' }}>No transactions for {selectedParty}</p>
+          <p className="text-xs" style={{ color: 'var(--text-3)' }}>Try a different person or change the project filter.</p>
         </div>
       ) : (
         <>
+          {/* Summary cards */}
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            <StatCard label="Total Debit"  value={`₹${fmtMoney(totals.debit)}`}  accent="#EA580C" icon={ArrowDownRight} sub="paid out" />
+            <StatCard label="Total Credit" value={`₹${fmtMoney(totals.credit)}`} accent="#16A34A" icon={ArrowUpRight}   sub="received" />
+            <StatCard
+              label="Closing Balance"
+              value={`${totals.closing < 0 ? '−' : ''}₹${fmtMoney(Math.abs(totals.closing))}`}
+              accent={totals.closing < 0 ? '#EA580C' : '#16A34A'}
+              icon={Wallet}
+              sub={totals.closing < 0 ? 'net paid out' : (totals.closing > 0 ? 'net received' : 'square')}
+            />
+          </div>
+
           {/* DESKTOP TABLE */}
           <div className="hidden sm:block rounded-2xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
             <div className="overflow-x-auto">
@@ -2166,7 +2423,7 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
                     <Th>#</Th>
                     <Th>Date</Th>
                     <Th>Project</Th>
-                    <Th>Name</Th>
+                    <Th>Counterparty</Th>
                     <Th>Narrative</Th>
                     <Th>JournalID</Th>
                     <Th align="right">Debit</Th>
@@ -2176,13 +2433,8 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
                 </thead>
                 <tbody>
                   {rows.map((r, idx) => (
-                    <tr
-                      key={r.bill.id}
-                      style={{
-                        background: idx % 2 ? 'var(--surface)' : 'transparent',
-                        borderTop: '1px solid var(--border-soft)',
-                      }}
-                    >
+                    <tr key={r.bill.id}
+                        style={{ background: idx % 2 ? 'var(--surface)' : 'transparent', borderTop: '1px solid var(--border-soft)' }}>
                       <Td mono>{r.index}</Td>
                       <Td>{r.date}</Td>
                       <Td>
@@ -2194,21 +2446,28 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
                       <Td>{r.name}</Td>
                       <Td truncate>{r.narrative}</Td>
                       <Td mono>
-                        <span className="px-1.5 py-0.5 rounded text-[11px]"
-                              style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }}>
+                        <span className="px-1.5 py-0.5 rounded text-[11px]" style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }}>
                           {r.journalId}
                         </span>
                       </Td>
-                      <Td align="right" mono>₹{fmtMoney(r.debit)}</Td>
+                      <Td align="right" mono>{r.debit > 0 ? `₹${fmtMoney(r.debit)}` : '—'}</Td>
                       <Td align="right" mono>{r.credit > 0 ? `₹${fmtMoney(r.credit)}` : '—'}</Td>
-                      <Td align="right" mono strong>₹{fmtMoney(r.balance)}</Td>
+                      <Td align="right" mono strong>
+                        <span style={{ color: r.balance < 0 ? '#EA580C' : (r.balance > 0 ? '#16A34A' : 'var(--text)') }}>
+                          {r.balance < 0 ? '−' : ''}₹{fmtMoney(Math.abs(r.balance))}
+                        </span>
+                      </Td>
                     </tr>
                   ))}
                   <tr style={{ background: 'var(--surface-3)', fontWeight: 700 }}>
                     <Td colSpan={6}>Totals</Td>
                     <Td align="right" mono strong>₹{fmtMoney(totals.debit)}</Td>
-                    <Td align="right" mono strong>{totals.credit > 0 ? `₹${fmtMoney(totals.credit)}` : '—'}</Td>
-                    <Td align="right" mono strong>₹{fmtMoney(totals.closing)}</Td>
+                    <Td align="right" mono strong>₹{fmtMoney(totals.credit)}</Td>
+                    <Td align="right" mono strong>
+                      <span style={{ color: totals.closing < 0 ? '#EA580C' : (totals.closing > 0 ? '#16A34A' : 'var(--text)') }}>
+                        {totals.closing < 0 ? '−' : ''}₹{fmtMoney(Math.abs(totals.closing))}
+                      </span>
+                    </Td>
                   </tr>
                 </tbody>
               </table>
@@ -2221,17 +2480,13 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
               <div key={r.bill.id} className="rounded-xl border p-3" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-3)' }}>
-                      #{r.index}
-                    </span>
+                    <span className="font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-3)' }}>#{r.index}</span>
                     <span className="text-xs" style={{ color: 'var(--text-3)' }}>{r.date}</span>
                   </div>
-                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }}>
-                    {r.journalId}
-                  </span>
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }}>{r.journalId}</span>
                 </div>
                 <div className="text-sm font-semibold mb-0.5" style={{ color: 'var(--text)' }}>{r.name}</div>
-                <div className="text-xs mb-2 truncate" style={{ color: 'var(--text-3)' }}>
+                <div className="text-xs mb-2" style={{ color: 'var(--text-3)' }}>
                   <span className="inline-flex items-center gap-1">
                     <span className="w-1.5 h-1.5 rounded-full" style={{ background: projects.find(p => p.name === r.project)?.color || '#94a3b8' }} />
                     {r.project}
@@ -2241,7 +2496,7 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
                 <div className="grid grid-cols-3 gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-soft)' }}>
                   <div>
                     <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Debit</div>
-                    <div className="font-mono text-sm" style={{ color: 'var(--text)' }}>₹{fmtMoney(r.debit)}</div>
+                    <div className="font-mono text-sm" style={{ color: 'var(--text)' }}>{r.debit > 0 ? `₹${fmtMoney(r.debit)}` : '—'}</div>
                   </div>
                   <div>
                     <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Credit</div>
@@ -2249,7 +2504,9 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
                   </div>
                   <div>
                     <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Balance</div>
-                    <div className="font-mono text-sm font-bold" style={{ color: '#E11D74' }}>₹{fmtMoney(r.balance)}</div>
+                    <div className="font-mono text-sm font-bold" style={{ color: r.balance < 0 ? '#EA580C' : (r.balance > 0 ? '#16A34A' : 'var(--text)') }}>
+                      {r.balance < 0 ? '−' : ''}₹{fmtMoney(Math.abs(r.balance))}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2263,11 +2520,13 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
                 </div>
                 <div>
                   <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Credit</div>
-                  <div className="font-mono text-sm font-bold" style={{ color: 'var(--text)' }}>{totals.credit > 0 ? `₹${fmtMoney(totals.credit)}` : '—'}</div>
+                  <div className="font-mono text-sm font-bold" style={{ color: 'var(--text)' }}>₹{fmtMoney(totals.credit)}</div>
                 </div>
                 <div>
                   <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Closing</div>
-                  <div className="font-mono text-sm font-bold" style={{ color: '#E11D74' }}>₹{fmtMoney(totals.closing)}</div>
+                  <div className="font-mono text-sm font-bold" style={{ color: totals.closing < 0 ? '#EA580C' : (totals.closing > 0 ? '#16A34A' : 'var(--text)') }}>
+                    {totals.closing < 0 ? '−' : ''}₹{fmtMoney(Math.abs(totals.closing))}
+                  </div>
                 </div>
               </div>
             </div>
