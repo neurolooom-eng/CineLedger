@@ -386,7 +386,7 @@ export default function App() {
   // Sync this project's bills to Drive — creates folder + sheet on first run
   // (idempotent on the Apps Script side), then writes all bills for the project.
   const syncProjectBills = async (projectId, opts = {}) => {
-    const project = projects.find(p => p.id === projectId);
+    const project = opts.projectOverride || projects.find(p => p.id === projectId);
     if (!project) return { ok: false };
     if (!settings.scriptUrl) {
       if (!opts.silent) flashToast('info', 'Set the Apps Script URL in Settings first');
@@ -568,10 +568,16 @@ export default function App() {
 
   // ----- Bill save (auto-creates project/parties if new) -----
   const saveBill = (bill) => {
-    // Auto-create project if it doesn't exist
-    if (bill.project && !projects.some(p => p.name.toLowerCase() === bill.project.toLowerCase())) {
-      addProject({ name: bill.project });
+    // Determine the bill's project — existing match or freshly created.
+    // addProject() returns the project object even when a new one is created,
+    // so we can use it directly without waiting for state to flush.
+    let billProject = bill.project
+      ? projects.find(p => p.name.toLowerCase() === bill.project.toLowerCase())
+      : null;
+    if (!billProject && bill.project) {
+      billProject = addProject({ name: bill.project });
     }
+
     // Auto-add parties
     let nextParties = parties;
     nextParties = addPartyIfNew(bill.paidBy, nextParties);
@@ -582,20 +588,21 @@ export default function App() {
     persistBills(nextBills);
     flashToast('success', 'Bill saved · syncing to Drive…');
 
-    // Auto-sync this project to Drive in the background
-    if (settings.scriptUrl && bill.project) {
-      // Use a microtask so state updates flush first, then locate the project
-      Promise.resolve().then(() => {
-        const proj = projects.find(p => p.name.toLowerCase() === bill.project.toLowerCase());
-        if (proj) {
-          // Pass nextBills explicitly so the bill we just added is included
-          syncProjectBills(proj.id, { silent: true, billsOverride: nextBills })
-            .then(r => {
-              if (r && r.ok) flashToast('success', 'Synced to Drive');
-            })
-            .catch(e => console.warn('Auto-sync failed:', e));
-        }
-      });
+    // Auto-sync — we already have billProject in hand, no lookup needed.
+    if (settings.scriptUrl && billProject) {
+      syncProjectBills(billProject.id, {
+        silent: true,
+        billsOverride: nextBills,
+        projectOverride: billProject,
+      })
+        .then(r => {
+          if (r && r.ok) flashToast('success', 'Synced to Drive');
+          else if (r && r.error) flashToast('info', 'Auto-sync failed — open Projects to retry');
+        })
+        .catch(e => console.warn('Auto-sync failed:', e));
+    } else if (!settings.scriptUrl) {
+      // No Drive backend configured — let the user know once.
+      flashToast('info', 'Add an Apps Script URL in Settings to enable auto-sync');
     }
   };
 
