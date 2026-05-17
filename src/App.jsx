@@ -101,7 +101,7 @@ const PROJECT_COLORS = [
 // ============================================================
 const DRIVE_PARENT_FOLDER_ID = '1Q-eSFalmrtrzZVh0Ukgrl08S9RT8bF2G';
 // Seed value for the Apps Script URL. Set to '' if you don't want a default.
-const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzPfy7FS2m1EgawwBOL1dVkLz3PXgK1djTy-WvDOC2DS-4E0z5xWtt5F-Ic0ziKBU4yFg/exec';
+const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyOB0FXVnajr8wU1YOKZAewXWOZPxJjqQbxXW9sMExgjCSykK8iKg99vw0-zN9K2hQV-A/exec';
 
 // ============================================================
 // AUTHORIZED ADMIN CREDENTIALS (hard-coded soft gate)
@@ -735,6 +735,7 @@ export default function App() {
 
   const selectProject = (id) => {
     setSelectedProjectId(id);
+    if (isDemo) return; // Demo selection is session-only; don't pollute storage
     if (id) dataLayer.setRaw('cine-selected-project', id);
     else    dataLayer.setRaw('cine-selected-project', '');
   };
@@ -987,14 +988,26 @@ export default function App() {
 
   // Reload real (admin) data from storage — used when transitioning from demo → admin
   const reloadRealData = async () => {
-    const [b, pr, pa] = await Promise.all([
+    const [b, pr, pa, sel] = await Promise.all([
       dataLayer.get('cine-bills'),
       dataLayer.get('cine-projects'),
       dataLayer.get('cine-parties'),
+      dataLayer.getRaw('cine-selected-project'),
     ]);
+    const realProjects = Array.isArray(pr)
+      ? pr.map(p => p.enabled === false ? p : { ...p, enabled: p.enabled !== false })
+      : [];
     setBills(Array.isArray(b) ? b : []);
-    setProjects(Array.isArray(pr) ? pr.map(p => p.enabled === false ? p : { ...p, enabled: p.enabled !== false }) : []);
+    setProjects(realProjects);
     setParties(Array.isArray(pa) ? pa : []);
+    // Critical: only restore the project filter if it actually exists in real data.
+    // Otherwise (e.g. it's a stale 'demo-pX' id from the demo session), clear it
+    // so the ledger doesn't silently filter every bill out.
+    if (sel && realProjects.some(p => p.id === sel)) {
+      setSelectedProjectId(sel);
+    } else {
+      setSelectedProjectId(null);
+    }
   };
 
   const tryLogin = (email, pin) => {
@@ -1028,6 +1041,7 @@ export default function App() {
     setBills(seed.bills);
     setProjects(seed.projects);
     setParties(seed.parties);
+    setSelectedProjectId(null); // clear any stale filter from a previous admin session
     setAuthUser(DEMO_USER);
     setScreen('ledger');
   };
