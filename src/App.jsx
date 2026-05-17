@@ -111,9 +111,59 @@ const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyOB0FXVnajr
 const ADMIN_EMAIL = 'neurolooom@gmail.com';
 const ADMIN_PIN   = '3397';
 
-function LoginScreen({ onLogin, theme, toggleTheme }) {
+// Demo mode — bypasses login for pitches. Uses in-memory sample data;
+// no real Drive sync, no admin gear.
+const DEMO_USER = { email: 'demo@cineledger.app', role: 'demo' };
+
+// Demo seed data — projects, bills, parties. Loaded fresh each demo session.
+function getDemoSeed() {
+  const now = new Date();
+  const daysAgo = (n) => {
+    const d = new Date(now); d.setDate(d.getDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
+  const projects = [
+    { id: 'demo-p1', name: 'Untitled Feature 2026', prefix: 'UF26', color: '#E11D74', notes: 'Director: R. Menon · Producer: BrandEpic', enabled: true, createdAt: new Date().toISOString(), driveStatus: 'synced', driveFolderId: 'demo', driveFolderUrl: '#', driveSheetId: 'demo', driveSheetUrl: '#', driveSyncedAt: new Date().toISOString(), driveError: null, billCounter: 7 },
+    { id: 'demo-p2', name: 'Music Video — Last Take', prefix: 'LTKV', color: '#16A34A', notes: 'Artist: Anaya · 3-day shoot', enabled: true, createdAt: new Date().toISOString(), driveStatus: 'synced', driveFolderId: 'demo', driveFolderUrl: '#', driveSheetId: 'demo', driveSheetUrl: '#', driveSyncedAt: new Date().toISOString(), driveError: null, billCounter: 4 },
+    { id: 'demo-p3', name: 'Brand Film — Indigo', prefix: 'INDG', color: '#2563EB', notes: 'Client: Indigo Co · 30s + 15s cutdown', enabled: true, createdAt: new Date().toISOString(), driveStatus: 'pending', driveFolderId: null, driveFolderUrl: null, driveSheetId: null, driveSheetUrl: null, driveSyncedAt: null, driveError: null, billCounter: 0 },
+  ];
+  const bills = [
+    // Untitled Feature 2026
+    { id: 'demo-b1', project: 'Untitled Feature 2026', date: daysAgo(2),  billNumber: 'UF26-0001', department: 'Costume',  category: 'Designer Fee',     paidBy: 'BrandEpic Production', paidTo: 'A. Mehrotra',   amount: 85000, paymentMode: 'neft',  utr: 'UTRX9182',     status: 'paid',    approvedBy: 'R. Menon',   description: 'Lead designer week 3 fee', attachments: [], createdAt: new Date().toISOString() },
+    { id: 'demo-b2', project: 'Untitled Feature 2026', date: daysAgo(4),  billNumber: 'UF26-0002', department: 'Camera',   category: 'Rental',           paidBy: 'BrandEpic Production', paidTo: 'Cinerent Studios', amount: 142000, paymentMode: 'cheque', chequeNo: 'CHQ-44521', bank: 'HDFC', status: 'paid',    approvedBy: 'R. Menon',   description: 'ARRI Alexa Mini LF — 5-day package', attachments: [], createdAt: new Date().toISOString() },
+    { id: 'demo-b3', project: 'Untitled Feature 2026', date: daysAgo(6),  billNumber: 'UF26-0003', department: 'Catering', category: 'Daily Meals',      paidBy: 'BrandEpic Production', paidTo: 'Sangeetha Caterers', amount: 38500, paymentMode: 'upi',   upiId: 'sangeetha@okhdfc', status: 'paid',    approvedBy: 'P. Iyer',  description: '85 crew × 3 meals (Day 12)', attachments: [], createdAt: new Date().toISOString() },
+    { id: 'demo-b4', project: 'Untitled Feature 2026', date: daysAgo(7),  billNumber: 'UF26-0004', department: 'Lighting', category: 'Gaffer Fee',       paidBy: 'BrandEpic Production', paidTo: 'K. Subramanian', amount: 65000, paymentMode: 'gpay',  upiId: '9845xxxx@oksbi', status: 'paid',    approvedBy: 'R. Menon',  description: 'Gaffer wages — Week 2', attachments: [], createdAt: new Date().toISOString() },
+    { id: 'demo-b5', project: 'Untitled Feature 2026', date: daysAgo(9),  billNumber: 'UF26-0005', department: 'Art',      category: 'Props',            paidBy: 'A. Mehrotra',          paidTo: 'Bombay Props Co', amount: 24200, paymentMode: 'cash',  status: 'pending', approvedBy: '',           description: 'Period props for Act 2', attachments: [], createdAt: new Date().toISOString() },
+    { id: 'demo-b6', project: 'Untitled Feature 2026', date: daysAgo(12), billNumber: 'UF26-0006', department: 'Sound',    category: 'Boom Operator',    paidBy: 'BrandEpic Production', paidTo: 'M. Nair',       amount: 42000, paymentMode: 'neft',  utr: 'UTRY7732',     status: 'paid',    approvedBy: 'R. Menon',   description: '14-day shoot fee', attachments: [], createdAt: new Date().toISOString() },
+    { id: 'demo-b7', project: 'Untitled Feature 2026', date: daysAgo(15), billNumber: 'UF26-0007', department: 'Transport',category: 'Driver wages',     paidBy: 'BrandEpic Production', paidTo: 'Sri Travels',   amount: 56800, paymentMode: 'neft',  utr: 'UTRZ4419',     status: 'approved', approvedBy: 'P. Iyer',  description: '2 vans × 14 days', attachments: [], createdAt: new Date().toISOString() },
+    // Music Video — Last Take
+    { id: 'demo-b8',  project: 'Music Video — Last Take', date: daysAgo(1),  billNumber: 'LTKV-0001', department: 'Camera',    category: 'DOP Fee',          paidBy: 'BrandEpic Production', paidTo: 'S. Sharma',    amount: 120000, paymentMode: 'neft', utr: 'UTRMV0001', status: 'paid',    approvedBy: 'Anaya',  description: 'DOP — 3-day shoot', attachments: [], createdAt: new Date().toISOString() },
+    { id: 'demo-b9',  project: 'Music Video — Last Take', date: daysAgo(3),  billNumber: 'LTKV-0002', department: 'Costume',   category: 'Stylist',          paidBy: 'BrandEpic Production', paidTo: 'P. Kapoor',    amount: 45000, paymentMode: 'upi',  upiId: 'pk@okicici', status: 'paid',    approvedBy: 'Anaya',  description: 'Wardrobe + on-set styling', attachments: [], createdAt: new Date().toISOString() },
+    { id: 'demo-b10', project: 'Music Video — Last Take', date: daysAgo(5),  billNumber: 'LTKV-0003', department: 'Catering',  category: 'Daily Meals',      paidBy: 'BrandEpic Production', paidTo: 'Sangeetha Caterers', amount: 18000, paymentMode: 'upi', upiId: 'sangeetha@okhdfc', status: 'paid', approvedBy: 'Anaya', description: '32 crew × 3 days', attachments: [], createdAt: new Date().toISOString() },
+    { id: 'demo-b11', project: 'Music Video — Last Take', date: daysAgo(6),  billNumber: 'LTKV-0004', department: 'Lighting',  category: 'Equipment',        paidBy: 'BrandEpic Production', paidTo: 'Cinerent Studios', amount: 88500, paymentMode: 'cheque', chequeNo: 'CHQ-44600', bank: 'HDFC', status: 'pending', approvedBy: '', description: '5K + HMI rental', attachments: [], createdAt: new Date().toISOString() },
+  ];
+  const parties = [
+    { id: 'demo-pa1', name: 'BrandEpic Production' },
+    { id: 'demo-pa2', name: 'A. Mehrotra' },
+    { id: 'demo-pa3', name: 'Cinerent Studios' },
+    { id: 'demo-pa4', name: 'Sangeetha Caterers' },
+    { id: 'demo-pa5', name: 'K. Subramanian' },
+    { id: 'demo-pa6', name: 'Bombay Props Co' },
+    { id: 'demo-pa7', name: 'M. Nair' },
+    { id: 'demo-pa8', name: 'Sri Travels' },
+    { id: 'demo-pa9', name: 'S. Sharma' },
+    { id: 'demo-pa10', name: 'P. Kapoor' },
+    { id: 'demo-pa11', name: 'R. Menon' },
+    { id: 'demo-pa12', name: 'P. Iyer' },
+    { id: 'demo-pa13', name: 'Anaya' },
+  ];
+  return { projects, bills, parties };
+}
+
+function LoginScreen({ onLogin, onStartDemo, theme, toggleTheme }) {
   const [email, setEmail] = useState('');
   const [pin, setPin] = useState('');
+  const [showPin, setShowPin] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -163,7 +213,7 @@ function LoginScreen({ onLogin, theme, toggleTheme }) {
           Sign in
         </div>
         <h2 className="text-2xl mb-5" style={{ fontFamily: '"Bebas Neue", sans-serif', color: 'var(--text)' }}>
-          Admin Access Only
+          Admin Access
         </h2>
 
         <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
@@ -171,7 +221,11 @@ function LoginScreen({ onLogin, theme, toggleTheme }) {
         </label>
         <input
           type="email"
+          inputMode="email"
           autoComplete="username"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           value={email}
           onChange={e => setEmail(e.target.value)}
           placeholder="you@example.com"
@@ -180,19 +234,32 @@ function LoginScreen({ onLogin, theme, toggleTheme }) {
           style={inputStyle}
         />
 
-        <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
-          PIN
-        </label>
+        <div className="flex items-center justify-between mb-1.5">
+          <label className="text-[11px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>
+            PIN
+          </label>
+          <button
+            type="button"
+            onClick={() => setShowPin(s => !s)}
+            className="text-[10px] uppercase tracking-wider font-bold transition hover:opacity-80"
+            style={{ color: 'var(--text-3)' }}
+          >
+            {showPin ? '◉ Hide' : '○ Show'}
+          </button>
+        </div>
         <input
-          type="password"
+          type={showPin ? 'text' : 'password'}
           inputMode="numeric"
           autoComplete="current-password"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
           value={pin}
           onChange={e => setPin(e.target.value)}
           placeholder="••••"
           maxLength={12}
           className={inputBaseClasses + ' mb-4'}
-          style={{ ...inputStyle, fontFamily: '"IBM Plex Mono", monospace', letterSpacing: '0.2em' }}
+          style={{ ...inputStyle, fontFamily: '"IBM Plex Mono", monospace', letterSpacing: showPin ? '0.1em' : '0.2em' }}
         />
 
         {err && (
@@ -215,14 +282,67 @@ function LoginScreen({ onLogin, theme, toggleTheme }) {
           {busy ? 'Verifying…' : 'Sign In'}
         </button>
 
-        <div className="mt-5 pt-4 border-t text-[11px] leading-relaxed" style={{ borderColor: 'var(--border)', color: 'var(--text-3)' }}>
-          This is a private workspace. Only authorized administrators can access it.
+        {/* Divider */}
+        <div className="my-5 flex items-center gap-3">
+          <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+          <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-4)' }}>or</span>
+          <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+        </div>
+
+        {/* Demo mode button */}
+        <button
+          type="button"
+          onClick={onStartDemo}
+          className="w-full py-3 rounded-xl font-bold text-sm transition border-2 hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-2"
+          style={{
+            background: 'transparent',
+            borderColor: 'var(--border-strong)',
+            color: 'var(--text)',
+          }}
+        >
+          <Clapperboard className="w-4 h-4" />
+          Try Demo
+        </button>
+
+        <div className="mt-3 text-[11px] text-center leading-relaxed" style={{ color: 'var(--text-3)' }}>
+          Explore CineLedger with sample data — no login needed.
         </div>
       </form>
 
       <div className="mt-6 text-[11px]" style={{ color: 'var(--text-4)' }}>
         © 2026 <span style={{ color: '#E11D74', fontWeight: 700 }}>BrandEpic</span> by <span style={{ color: 'var(--text-2)', fontWeight: 700 }}>Aang</span>
       </div>
+    </div>
+  );
+}
+
+// Banner shown while a demo session is active
+function DemoBanner({ onExit }) {
+  return (
+    <div
+      className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2 text-white text-xs sm:text-sm"
+      style={{
+        background: 'linear-gradient(90deg, #E11D74 0%, #EA580C 50%, #D97706 100%)',
+        fontWeight: 600,
+      }}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <Clapperboard className="w-4 h-4 flex-shrink-0" />
+        <span className="truncate">
+          <span className="font-bold tracking-wider mr-2">DEMO MODE</span>
+          <span className="hidden sm:inline opacity-90">Sample data · changes are session-only · no Drive sync</span>
+          <span className="sm:hidden opacity-90">Sample data, session-only</span>
+        </span>
+      </div>
+      <button
+        onClick={onExit}
+        className="flex-shrink-0 px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition"
+        style={{ background: 'rgba(0,0,0,0.25)' }}
+        onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,0,0,0.4)'}
+        onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,0,0,0.25)'}
+      >
+        Exit
+      </button>
     </div>
   );
 }
@@ -454,6 +574,7 @@ export default function App() {
 
   // Derived: is the current session an authenticated admin?
   const isAdmin = Boolean(authUser && authUser.email && authUser.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
+  const isDemo  = Boolean(authUser && authUser.role === 'demo');
 
   const [theme, setTheme] = useState(() => {
     try {
@@ -499,10 +620,10 @@ export default function App() {
     })();
   }, []);
 
-  const persistBills    = (next) => { setBills(next);    dataLayer.set('cine-bills', next); };
-  const persistProjects = (next) => { setProjects(next); dataLayer.set('cine-projects', next); };
-  const persistParties  = (next) => { setParties(next);  dataLayer.set('cine-parties', next); };
-  const persistSettings = (next) => { setSettings(next); dataLayer.set('cine-settings', next); };
+  const persistBills    = (next) => { setBills(next);    if (!isDemo) dataLayer.set('cine-bills', next); };
+  const persistProjects = (next) => { setProjects(next); if (!isDemo) dataLayer.set('cine-projects', next); };
+  const persistParties  = (next) => { setParties(next);  if (!isDemo) dataLayer.set('cine-parties', next); };
+  const persistSettings = (next) => { setSettings(next); if (!isDemo) dataLayer.set('cine-settings', next); };
 
   const updateSettings = (patch) => persistSettings({ ...settings, ...patch });
 
@@ -526,6 +647,12 @@ export default function App() {
   const syncProjectBills = async (projectId, opts = {}) => {
     const project = opts.projectOverride || projects.find(p => p.id === projectId);
     if (!project) return { ok: false };
+    // Demo sessions never make real Drive calls — pretend it succeeded
+    if (isDemo) {
+      patchProject(projectId, { driveStatus: 'synced', driveSyncedAt: new Date().toISOString(), driveError: null });
+      if (!opts.silent) flashToast('success', 'Synced (demo)');
+      return { ok: true, billsSynced: 0, attachmentsUploaded: {} };
+    }
     if (!settings.scriptUrl) {
       if (!opts.silent) flashToast('info', 'Set the Apps Script URL in Settings first');
       return { ok: false };
@@ -751,20 +878,46 @@ export default function App() {
 
   // Auth handlers — soft gate against the hard-coded admin credentials
   const tryLogin = (email, pin) => {
-    const e = (email || '').trim().toLowerCase();
-    const p = (pin || '').trim();
-    if (e === ADMIN_EMAIL.toLowerCase() && p === ADMIN_PIN) {
+    // Aggressive normalization: lowercase, strip all whitespace (including zero-width),
+    // strip surrounding quotes (in case the user pasted from a list).
+    const norm = (s) => String(s || '').replace(/[\s'"]+/g, '').toLowerCase();
+    const e = norm(email);
+    const p = String(pin || '').replace(/\s+/g, '');
+    const expectedEmail = ADMIN_EMAIL.toLowerCase();
+    if (e === expectedEmail && p === ADMIN_PIN) {
       const user = { email: ADMIN_EMAIL, role: 'admin', loggedInAt: new Date().toISOString() };
       setAuthUser(user);
       dataLayer.set('cine-auth', user);
       return { ok: true };
     }
+    // Helpful diagnostic in dev console — does NOT leak credentials in UI
+    if (typeof console !== 'undefined') {
+      console.warn('[CineLedger] Login mismatch.',
+        'Email matches:', e === expectedEmail,
+        '· PIN length:', p.length, '· expected length:', ADMIN_PIN.length);
+    }
     return { ok: false, error: 'Wrong email or PIN' };
   };
+
+  const startDemo = () => {
+    // Seed demo data fresh (don't persist demo session or its data)
+    const seed = getDemoSeed();
+    setBills(seed.bills);
+    setProjects(seed.projects);
+    setParties(seed.parties);
+    setAuthUser(DEMO_USER);
+    // Intentionally do NOT call dataLayer.set('cine-auth', DEMO_USER) — demo is session-only
+    setScreen('ledger'); // start on Ledger which now defaults to Table view
+  };
+
   const logout = () => {
     setAuthUser(null);
     dataLayer.set('cine-auth', null);
     setScreen('form');
+    // If exiting demo, wipe the in-memory seed so it doesn't leak into next login
+    if (isDemo) {
+      setBills([]); setProjects([]); setParties([]);
+    }
   };
 
   // Filter to ENABLED projects for screens used by non-admins; admins see all.
@@ -789,9 +942,10 @@ export default function App() {
       {!loaded ? (
         <div className="flex-1 flex items-center justify-center" style={{ color: 'var(--text-4)' }}>Loading…</div>
       ) : !authUser ? (
-        <LoginScreen onLogin={tryLogin} theme={theme} toggleTheme={toggleTheme} />
+        <LoginScreen onLogin={tryLogin} onStartDemo={startDemo} theme={theme} toggleTheme={toggleTheme} />
       ) : (
         <>
+          {isDemo && <DemoBanner onExit={logout} />}
           <Header
             screen={screen}
             setScreen={setScreen}
@@ -1165,13 +1319,19 @@ function ProjectSelector({ projects, selectedId, onChange }) {
 
           {open && (
             <div
-              className="absolute z-40 left-0 sm:left-0 right-0 sm:right-auto sm:min-w-[280px] top-full mt-1 rounded-xl border overflow-hidden scale-in"
-              style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-lg)' }}
+              className="absolute z-50 left-0 sm:left-0 right-0 sm:right-auto sm:min-w-[280px] top-full mt-1 rounded-xl border overflow-hidden scale-in"
+              style={{
+                background: 'var(--surface-elevated)',
+                borderColor: 'var(--border-strong)',
+                boxShadow: 'var(--shadow-lg)',
+                backdropFilter: 'blur(4px)',
+                WebkitBackdropFilter: 'blur(4px)',
+              }}
             >
               <button
                 onClick={() => { onChange(null); setOpen(false); }}
                 className="w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 transition"
-                style={{ background: !selectedId ? 'var(--surface-hover)' : 'transparent', color: 'var(--text)' }}
+                style={{ background: !selectedId ? 'var(--surface-3)' : 'transparent', color: 'var(--text)' }}
               >
                 <span className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--text-4)' }} />
                 <span>All Projects</span>
@@ -1186,7 +1346,7 @@ function ProjectSelector({ projects, selectedId, onChange }) {
                       key={p.id}
                       onClick={() => { onChange(p.id); setOpen(false); }}
                       className="w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 transition"
-                      style={{ background: active ? 'var(--surface-hover)' : 'transparent', color: 'var(--text)' }}
+                      style={{ background: active ? 'var(--surface-3)' : 'transparent', color: 'var(--text)' }}
                     >
                       <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: p.color }} />
                       <span className="truncate">{p.name}</span>
