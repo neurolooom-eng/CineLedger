@@ -1822,7 +1822,7 @@ function StatCard({ label, value, accent, icon: Icon, sub }) {
       <div className="relative">
         <div className="flex items-center justify-between mb-1.5">
           <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: 'var(--text-3)' }}>{label}</div>
-          <Icon className="w-3.5 h-3.5" style={{ color: accent }} />
+          {Icon && <Icon className="w-3.5 h-3.5" style={{ color: accent }} />}
         </div>
         <div className="text-lg sm:text-2xl font-bold leading-tight truncate" style={{ fontFamily: '"IBM Plex Mono", monospace', color: 'var(--text)' }}>{value}</div>
         {sub && <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>{sub}</div>}
@@ -2142,9 +2142,9 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-3 mb-6">
-        <StatCard label="Total Debit"  value={`₹${fmtMoney(totals.debit)}`}  accent="#EA580C" />
-        <StatCard label="Total Credit" value={totals.credit > 0 ? `₹${fmtMoney(totals.credit)}` : '—'} accent="#16A34A" />
-        <StatCard label="Closing Bal." value={`₹${fmtMoney(totals.closing)}`} accent="#E11D74" />
+        <StatCard label="Total Debit"  value={`₹${fmtMoney(totals.debit)}`}  accent="#EA580C" icon={ArrowDownRight} />
+        <StatCard label="Total Credit" value={totals.credit > 0 ? `₹${fmtMoney(totals.credit)}` : '—'} accent="#16A34A" icon={ArrowUpRight} />
+        <StatCard label="Closing Bal." value={`₹${fmtMoney(totals.closing)}`} accent="#E11D74" icon={Wallet} />
       </div>
 
       {rows.length === 0 ? (
