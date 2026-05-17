@@ -3297,7 +3297,9 @@ function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter, force
       .sort((a, b) => Math.abs(b.closingBalance) - Math.abs(a.closingBalance));
   }, [filtered]);
 
-  const groups = view === 'department' ? byDepartment : byIndividual;
+  // The remaining "grouped card" view now only handles Individual (Department
+  // got promoted to its own dashboard component below).
+  const groups = byIndividual;
 
   return (
     <div className="fade-in">
@@ -3329,9 +3331,9 @@ function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter, force
         </div>
         <div className="flex border rounded-xl p-1 gap-1 flex-wrap" style={{ background: 'var(--surface-3)', borderColor: 'var(--border)' }} data-tour="ledger-views">
           <ViewToggle active={view === 'table'}      onClick={() => { setView('table');      setSelected(null); }} icon={FileText}   label="Table" />
-          <ViewToggle active={view === 'department'} onClick={() => { setView('department'); setSelected(null); }} icon={Briefcase}  label="Department" />
-          <ViewToggle active={view === 'individual'} onClick={() => { setView('individual'); setSelected(null); }} icon={User}       label="Individual" />
           <ViewToggle active={view === 'books'}      onClick={() => { setView('books');      setSelected(null); }} icon={Wallet}     label="Books" />
+          <ViewToggle active={view === 'individual'} onClick={() => { setView('individual'); setSelected(null); }} icon={User}       label="Individual" />
+          <ViewToggle active={view === 'department'} onClick={() => { setView('department'); setSelected(null); }} icon={Briefcase}  label="Department" />
         </div>
       </div>
 
@@ -3351,6 +3353,13 @@ function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter, force
           selectedProject={projectFilter}
           onSelectProject={() => {}}
           embedded
+        />
+      ) : view === 'department' ? (
+        <DepartmentDashboard
+          bills={filtered}
+          byDepartment={byDepartment}
+          totals={stats}
+          onDelete={onDelete}
         />
       ) : (
         <div className="space-y-3">
@@ -3580,6 +3589,253 @@ function StatusBadge({ status }) {
       <Icon className="w-2.5 h-2.5" />
       {status || 'n/a'}
     </span>
+  );
+}
+
+
+// ============================================================
+// DEPARTMENT DASHBOARD
+// Hybrid layout for the Department view:
+//   • Top:    3 stat tiles (total / depts / pending)
+//   • Center: horizontal bar chart, one bar per department
+//   • Below:  two side-by-side widgets (top bills + status mix)
+//   • Bottom: drill-down card list (reuses LedgerCard for parity)
+// ============================================================
+function DepartmentDashboard({ bills, byDepartment, totals, onDelete }) {
+  const [expanded, setExpanded] = useState(null);
+
+  // Status mix across all filtered bills
+  const statusMix = useMemo(() => {
+    const m = { paid: 0, pending: 0, approved: 0 };
+    bills.forEach(b => { if (m[b.status] != null) m[b.status] += 1; });
+    return m;
+  }, [bills]);
+
+  // Top 5 largest individual bills (regardless of department)
+  const topBills = useMemo(() => {
+    return [...bills]
+      .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
+      .slice(0, 5);
+  }, [bills]);
+
+  const pendingTotal = useMemo(
+    () => bills.filter(b => b.status === 'pending').reduce((s, b) => s + Number(b.amount || 0), 0),
+    [bills]
+  );
+
+  if (byDepartment.length === 0) {
+    return (
+      <div className="py-20 text-center rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--surface)', color: 'var(--text-3)' }}>
+        No departmental data yet — log a bill and assign it to a department.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 sm:space-y-5">
+      {/* TOP ROW — three KPI tiles */}
+      <div className="grid grid-cols-3 gap-3 sm:gap-4">
+        <DashTile
+          label="Total Spend"
+          value={formatCurrency(totals.total)}
+          sub={`${totals.count} bill${totals.count === 1 ? '' : 's'}`}
+          accent="var(--brand-1)"
+          icon={TrendingUp}
+        />
+        <DashTile
+          label="Departments"
+          value={byDepartment.length}
+          sub="active"
+          accent="var(--brand-2)"
+          icon={Briefcase}
+          mono={false}
+        />
+        <DashTile
+          label="Pending"
+          value={formatCurrency(pendingTotal)}
+          sub={`${statusMix.pending} bill${statusMix.pending === 1 ? '' : 's'}`}
+          accent="#CA8A04"
+          icon={Clock}
+        />
+      </div>
+
+      {/* CENTER — horizontal bar chart */}
+      <DashCard title="Spend by Department" icon={Briefcase} accent="var(--brand-1)">
+        <div className="space-y-2.5">
+          {byDepartment.map(d => {
+            const dept = getDept(d.name);
+            const pct = totals.total > 0 ? (d.total / byDepartment[0].total) * 100 : 0;
+            const share = totals.total > 0 ? (d.total / totals.total) * 100 : 0;
+            return (
+              <div key={d.key} className="flex items-center gap-2 sm:gap-3">
+                {/* Left label */}
+                <div className="w-24 sm:w-36 flex-shrink-0 flex items-center gap-1.5 text-xs sm:text-sm" style={{ color: 'var(--text-2)' }}>
+                  <span className="text-base flex-shrink-0">{dept.emoji}</span>
+                  <span className="truncate font-semibold">{d.name}</span>
+                </div>
+                {/* Bar */}
+                <div className="flex-1 h-7 sm:h-8 rounded-md relative overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+                  <div
+                    className="absolute inset-y-0 left-0 rounded-md transition-[width] duration-500"
+                    style={{
+                      width: `${pct}%`,
+                      background: `linear-gradient(90deg, ${dept.color}cc, ${dept.color})`,
+                      boxShadow: `0 0 12px ${dept.color}55`,
+                    }}
+                  />
+                  <div className="absolute inset-0 flex items-center justify-end pr-2 text-[10px] font-bold" style={{ color: 'var(--text-3)', fontFamily: '"IBM Plex Mono", monospace' }}>
+                    {share.toFixed(1)}%
+                  </div>
+                </div>
+                {/* Right value */}
+                <div className="w-20 sm:w-28 flex-shrink-0 text-right text-xs sm:text-sm font-bold" style={{ fontFamily: '"IBM Plex Mono", monospace', color: 'var(--text)' }}>
+                  {formatCurrency(d.total)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </DashCard>
+
+      {/* BOTTOM ROW — top bills + status mix */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <DashCard title="Largest Bills" icon={ArrowUpRight} accent="#2563EB">
+          {topBills.length === 0 ? (
+            <div className="text-xs text-center py-4" style={{ color: 'var(--text-4)' }}>No bills yet</div>
+          ) : (
+            <div className="space-y-1.5">
+              {topBills.map(b => {
+                const dept = getDept(b.department);
+                return (
+                  <div key={b.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg" style={{ background: 'var(--surface)' }}>
+                    <div className="w-7 h-7 rounded-md flex items-center justify-center text-sm flex-shrink-0" style={{ background: dept.color + '18' }}>
+                      {dept.emoji}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold truncate" style={{ color: 'var(--text)' }}>{b.paidTo || '—'}</div>
+                      <div className="text-[10px] flex items-center gap-1 mt-0.5" style={{ color: 'var(--text-4)' }}>
+                        <span className="font-mono">{b.billNumber || '—'}</span>
+                        <span>·</span>
+                        <span>{b.department}</span>
+                      </div>
+                    </div>
+                    <div className="text-xs sm:text-sm font-bold flex-shrink-0" style={{ fontFamily: '"IBM Plex Mono", monospace', color: 'var(--text)' }}>
+                      {formatCurrency(b.amount)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </DashCard>
+
+        <DashCard title="Status Mix" icon={CheckCircle2} accent="#16A34A">
+          <StatusMixWidget mix={statusMix} totalBills={bills.length} />
+        </DashCard>
+      </div>
+
+      {/* DRILL-DOWN — department cards (reuses LedgerCard) */}
+      <div className="pt-2">
+        <div className="text-[10px] uppercase tracking-[0.2em] font-bold mb-2.5 px-1" style={{ color: 'var(--text-3)' }}>
+          Browse by Department
+        </div>
+        <div className="space-y-3">
+          {byDepartment.map(g => (
+            <LedgerCard
+              key={g.key}
+              group={g}
+              view="department"
+              expanded={expanded === g.key}
+              onToggle={() => setExpanded(expanded === g.key ? null : g.key)}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Single KPI tile inside the dashboard
+function DashTile({ label, value, sub, accent, icon: Icon, mono = true }) {
+  return (
+    <div
+      className="relative p-3 sm:p-4 rounded-2xl border overflow-hidden"
+      style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }}
+    >
+      <div className="absolute top-0 right-0 w-20 h-20 rounded-full blur-2xl opacity-25" style={{ background: accent }} />
+      <div className="relative">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="text-[9px] sm:text-[10px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>{label}</div>
+          {Icon && <Icon className="w-3.5 h-3.5" style={{ color: accent }} />}
+        </div>
+        <div
+          className="text-base sm:text-2xl font-bold leading-tight truncate"
+          style={{ fontFamily: mono ? '"IBM Plex Mono", monospace' : 'inherit', color: 'var(--text)' }}
+        >
+          {value}
+        </div>
+        {sub && <div className="text-[10px] sm:text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+// Reusable section card for the dashboard
+function DashCard({ title, icon: Icon, accent, children }) {
+  return (
+    <div className="rounded-2xl border p-4 sm:p-5" style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+      <div className="flex items-center gap-2 mb-3">
+        {Icon && (
+          <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ background: accent + '18', color: accent }}>
+            <Icon className="w-3.5 h-3.5" />
+          </div>
+        )}
+        <h4 className="text-sm font-bold tracking-tight" style={{ color: 'var(--text)' }}>{title}</h4>
+        <div className="flex-1 h-px" style={{ background: `linear-gradient(90deg, ${accent}44, transparent)` }} />
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// Stacked status bar with a small legend
+function StatusMixWidget({ mix, totalBills }) {
+  const total = mix.paid + mix.pending + mix.approved;
+  if (total === 0) {
+    return <div className="text-xs text-center py-4" style={{ color: 'var(--text-4)' }}>No bills yet</div>;
+  }
+  const seg = (n) => total > 0 ? (n / total) * 100 : 0;
+  const COLORS = { paid: '#16A34A', approved: '#2563EB', pending: '#CA8A04' };
+  return (
+    <>
+      {/* Stacked bar */}
+      <div className="flex h-3 rounded-full overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+        {mix.paid > 0     && <div style={{ width: `${seg(mix.paid)}%`,     background: COLORS.paid }}     title={`Paid · ${mix.paid}`} />}
+        {mix.approved > 0 && <div style={{ width: `${seg(mix.approved)}%`, background: COLORS.approved }} title={`Approved · ${mix.approved}`} />}
+        {mix.pending > 0  && <div style={{ width: `${seg(mix.pending)}%`,  background: COLORS.pending }}  title={`Pending · ${mix.pending}`} />}
+      </div>
+      {/* Legend */}
+      <div className="grid grid-cols-3 gap-2 mt-3 text-[11px]">
+        <StatusLegend dot={COLORS.paid}     label="Paid"     count={mix.paid}     pct={seg(mix.paid)} />
+        <StatusLegend dot={COLORS.approved} label="Approved" count={mix.approved} pct={seg(mix.approved)} />
+        <StatusLegend dot={COLORS.pending}  label="Pending"  count={mix.pending}  pct={seg(mix.pending)} />
+      </div>
+    </>
+  );
+}
+
+function StatusLegend({ dot, label, count, pct }) {
+  return (
+    <div className="flex items-center gap-1.5 min-w-0">
+      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: dot }} />
+      <div className="min-w-0">
+        <div className="text-[10px] uppercase tracking-wider font-bold truncate" style={{ color: 'var(--text-3)' }}>{label}</div>
+        <div className="text-xs font-bold" style={{ color: 'var(--text)', fontFamily: '"IBM Plex Mono", monospace' }}>
+          {count} <span className="text-[10px] font-normal" style={{ color: 'var(--text-4)' }}>· {pct.toFixed(0)}%</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
