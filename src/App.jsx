@@ -491,7 +491,16 @@ const dataLayer = {
     } catch (e) { return null; }
   },
   set: async (key, value) => {
-    try { await window.storage.set(key, JSON.stringify(value)); } catch (e) {}
+    try {
+      const payload = JSON.stringify(value);
+      await window.storage.set(key, payload);
+    } catch (e) {
+      // Most common cause: localStorage quota (~5MB) exceeded.
+      // We log loudly because a silent drop here looks like data loss to the user.
+      console.error('[CineLedger] Storage write FAILED for key', key, '— payload size:',
+                    (() => { try { return JSON.stringify(value).length; } catch { return '?'; } })(),
+                    'bytes. Likely cause: localStorage quota exceeded.', e);
+    }
   },
   getRaw: async (key) => {
     try {
@@ -500,7 +509,9 @@ const dataLayer = {
     } catch (e) { return null; }
   },
   setRaw: async (key, value) => {
-    try { await window.storage.set(key, value); } catch (e) {}
+    try { await window.storage.set(key, value); } catch (e) {
+      console.error('[CineLedger] Storage write FAILED for key', key, e);
+    }
   },
 };
 
@@ -726,7 +737,52 @@ export default function App() {
     })();
   }, []);
 
-  const persistBills    = (next) => { setBills(next);    if (!isDemo) dataLayer.set('cine-bills', next); };
+  // Auto-refresh from Drive Config when an admin session regains focus
+  // (e.g. switching back to the tab after editing the Config sheet directly).
+  // Debounced to avoid hammering the Apps Script. Demo sessions are skipped.
+  useEffect(() => {
+    if (!loaded) return;
+    if (!authUser || authUser.role !== 'admin') return;
+    if (!settings.scriptUrl) return;
+
+    let lastRun = 0;
+    const REFRESH_COOLDOWN_MS = 30 * 1000; // at most once every 30s
+
+    const tryRefresh = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+      const now = Date.now();
+      if (now - lastRun < REFRESH_COOLDOWN_MS) return;
+      lastRun = now;
+      refreshConfigFromDrive({ silent: true }).catch(() => {});
+    };
+
+    window.addEventListener('focus', tryRefresh);
+    document.addEventListener('visibilitychange', tryRefresh);
+    return () => {
+      window.removeEventListener('focus', tryRefresh);
+      document.removeEventListener('visibilitychange', tryRefresh);
+    };
+  }, [loaded, authUser, settings.scriptUrl]);
+
+  // Strip base64 data + blob previews from attachments before writing to localStorage.
+  // The base64 only exists for one purpose — upload to Drive — and is huge. After
+  // Drive sync we have the URL; before sync there's no point persisting it (5MB quota
+  // would silently break). Blob URLs are session-scoped anyway.
+  const stripAttachmentsForStorage = (billsArr) => billsArr.map(b => ({
+    ...b,
+    attachments: Array.isArray(b.attachments)
+      ? b.attachments.map(att => ({
+          name: att.name,
+          size: att.size,
+          type: att.type,
+          driveId: att.driveId || null,
+          driveUrl: att.driveUrl || null,
+          uploadedAt: att.uploadedAt || null,
+        }))
+      : [],
+  }));
+
+  const persistBills    = (next) => { setBills(next);    if (!isDemo) dataLayer.set('cine-bills', stripAttachmentsForStorage(next)); };
   const persistProjects = (next) => { setProjects(next); if (!isDemo) dataLayer.set('cine-projects', next); };
   const persistParties  = (next) => { setParties(next);  if (!isDemo) dataLayer.set('cine-parties', next); };
   const persistSettings = (next) => { setSettings(next); if (!isDemo) dataLayer.set('cine-settings', next); };
@@ -1732,15 +1788,38 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
     update('billNumber', generateBillNo(form.project, projects, bills));
   };
 
-  const handleFiles = (files) => {
+  const handleFiles = async (files) => {
     const list = Array.from(files);
-    const newAtts = list.map(f => ({
-      name: f.name,
-      size: f.size,
-      type: f.type,
-      preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
-    }));
-    update('attachments', [...form.attachments, ...newAtts]);
+    // Read each file as a base64 data URL so the Apps Script can decode and
+    // upload it to Drive. Without this the attachment is just metadata with
+    // nothing to actually sync.
+    const readAsDataURL = (file) => new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error || new Error('Read failed'));
+      reader.readAsDataURL(file);
+    });
+    const MAX_SAFE = 10 * 1024 * 1024; // 10 MB — Apps Script JSON request gets unhappy past this
+    const oversized = list.filter(f => f.size > MAX_SAFE);
+    if (oversized.length > 0) {
+      console.warn('[CineLedger] Skipped oversized files:', oversized.map(f => `${f.name} (${(f.size/1024/1024).toFixed(1)}MB)`).join(', '));
+      if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+        window.alert(`Skipped ${oversized.length} file${oversized.length === 1 ? '' : 's'} over 10 MB. Compress or split before attaching.`);
+      }
+    }
+    const accepted = list.filter(f => f.size <= MAX_SAFE);
+    try {
+      const newAtts = await Promise.all(accepted.map(async f => ({
+        name: f.name,
+        size: f.size,
+        type: f.type,
+        data: await readAsDataURL(f),
+        preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
+      })));
+      update('attachments', [...form.attachments, ...newAtts]);
+    } catch (e) {
+      console.error('[CineLedger] File read failed:', e);
+    }
   };
 
   const removeAttachment = (idx) => {
