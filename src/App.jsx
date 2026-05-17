@@ -6,7 +6,7 @@ import {
   TrendingUp, Hash, Briefcase, CheckCircle2, Clock, AlertCircle,
   Image as ImageIcon, FileIcon, Receipt, ArrowLeft, Sun, Moon,
   RefreshCw, Pencil, FolderOpen,
-  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check, Palette, Mail
+  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check, Palette, Mail, Sparkles
 } from 'lucide-react';
 
 
@@ -419,6 +419,359 @@ function DemoBanner() {
       <span className="opacity-80">·</span>
       <span className="opacity-90 truncate">Sample data · session-only · no Drive sync</span>
     </div>
+  );
+}
+
+// ============================================================
+// PRODUCT TOUR
+// Spotlight-cutout product tour for demo viewers. Auto-starts the
+// first time a browser sees the demo (one-shot, stored in
+// 'cine-tour-seen'), and is replayable any time via the ✨ Tour
+// button in the header. Desktop-only — on mobile it shows a brief
+// "Tour available on desktop" toast and exits.
+// ============================================================
+
+const TOUR_STOPS = [
+  {
+    id: 'welcome',
+    screen: 'ledger',
+    selector: '[data-tour="brand"]',
+    placement: 'bottom',
+    title: 'Welcome to CineLedger',
+    body: 'Accounts for the silver screen. Every paisa, every department, every shoot.',
+  },
+  {
+    id: 'ledger-table',
+    screen: 'ledger',
+    ledgerView: 'table',
+    selector: '[data-tour="ledger-views"]',
+    placement: 'bottom',
+    title: 'Every transaction. One screen.',
+    body: 'The Table view is your ground truth — searchable, filterable, every bill across every project.',
+  },
+  {
+    id: 'ledger-dept',
+    screen: 'ledger',
+    ledgerView: 'department',
+    selector: '[data-tour="ledger-views"]',
+    placement: 'bottom',
+    title: 'By the numbers.',
+    body: 'Slice spend by department. Catering, Camera, Costume — see where the budget bleeds.',
+  },
+  {
+    id: 'ledger-indiv',
+    screen: 'ledger',
+    ledgerView: 'individual',
+    selector: '[data-tour="ledger-views"]',
+    placement: 'bottom',
+    title: 'Per-person ledgers.',
+    body: 'Who you’ve paid. Who’s owed. Running balances. No more shoot-day surprises.',
+  },
+  {
+    id: 'new-bill',
+    screen: 'form',
+    selector: '[data-tour="new-bill-card"]',
+    placement: 'right',
+    title: 'Thirty seconds to log a bill.',
+    body: 'Auto-numbered. Party autocomplete. Attachments inline. Built for the chaos of set.',
+  },
+  {
+    id: 'drive-sync',
+    screen: 'ledger',
+    ledgerView: 'table',
+    selectFirstProject: true,
+    selector: '[data-tour="project-selector"]',
+    placement: 'bottom',
+    title: 'Your data, your Drive.',
+    body: 'Every bill, every receipt, syncs to a Google Sheet you own. Walk away whenever you want.',
+  },
+  {
+    id: 'palette',
+    screen: 'ledger',
+    selector: '[data-tour="user-menu"]',
+    placement: 'bottom',
+    title: 'Make it yours.',
+    body: 'Twelve color themes. Tap your avatar to switch — instantly.',
+  },
+  {
+    id: 'contact',
+    screen: 'ledger',
+    selector: '[data-tour="contact-cta"]',
+    placement: 'bottom',
+    title: 'Ready to roll cameras?',
+    body: 'Drop your details and we’ll be in touch. Let’s talk CineLedger for your production.',
+  },
+];
+
+const TOUR_STOP_MS = 6000; // ms per stop before auto-advance
+
+// Compute placement coordinates for the tooltip given the target rect
+function computeTooltipPos(rect, placement, vw, vh, tooltipW, tooltipH) {
+  const gap = 16;
+  let top, left;
+  switch (placement) {
+    case 'top':
+      top = rect.top - tooltipH - gap;
+      left = rect.left + rect.width / 2 - tooltipW / 2;
+      break;
+    case 'right':
+      top = rect.top + rect.height / 2 - tooltipH / 2;
+      left = rect.right + gap;
+      break;
+    case 'left':
+      top = rect.top + rect.height / 2 - tooltipH / 2;
+      left = rect.left - tooltipW - gap;
+      break;
+    case 'bottom':
+    default:
+      top = rect.bottom + gap;
+      left = rect.left + rect.width / 2 - tooltipW / 2;
+      break;
+  }
+  // Clamp to viewport with 12px padding
+  left = Math.max(12, Math.min(vw - tooltipW - 12, left));
+  top  = Math.max(12, Math.min(vh - tooltipH - 12, top));
+  return { top, left };
+}
+
+function ProductTour({ open, step, onAdvance, onPrev, onSkip, onClose, totalSteps }) {
+  const [rect, setRect] = useState(null);
+  const [paused, setPaused] = useState(false);
+  const [progress, setProgress] = useState(0); // 0–1
+  const tooltipRef = useRef(null);
+  const startedAt = useRef(0);
+  const elapsedAtPause = useRef(0);
+  const rafRef = useRef(null);
+
+  const stop = TOUR_STOPS[step];
+
+  // Locate the target element and track its position. Re-measures on:
+  // - step change
+  // - window resize
+  // - window scroll
+  // - small interval to catch async DOM updates after screen switches
+  useEffect(() => {
+    if (!open || !stop) return;
+    let cancelled = false;
+    let pollTimer = null;
+
+    const measure = () => {
+      const el = document.querySelector(stop.selector);
+      if (!el) {
+        setRect(null);
+        return;
+      }
+      const r = el.getBoundingClientRect();
+      if (!cancelled) {
+        setRect({ top: r.top, left: r.left, width: r.width, height: r.height, bottom: r.bottom, right: r.right });
+      }
+    };
+
+    // Wait a frame so any screen-switch-triggered render completes first
+    requestAnimationFrame(measure);
+    // Poll for ~500ms in case the screen needs an extra tick to settle
+    let polls = 0;
+    pollTimer = setInterval(() => {
+      polls += 1;
+      measure();
+      if (polls > 10) clearInterval(pollTimer);
+    }, 50);
+
+    window.addEventListener('resize', measure);
+    window.addEventListener('scroll', measure, true);
+    return () => {
+      cancelled = true;
+      clearInterval(pollTimer);
+      window.removeEventListener('resize', measure);
+      window.removeEventListener('scroll', measure, true);
+    };
+  }, [open, step, stop?.selector]);
+
+  // Auto-advance timer with pause-on-hover
+  useEffect(() => {
+    if (!open) return;
+    startedAt.current = Date.now();
+    elapsedAtPause.current = 0;
+    setProgress(0);
+
+    const tick = () => {
+      if (paused) {
+        rafRef.current = requestAnimationFrame(tick);
+        return;
+      }
+      const elapsed = Date.now() - startedAt.current + elapsedAtPause.current;
+      const p = Math.min(elapsed / TOUR_STOP_MS, 1);
+      setProgress(p);
+      if (p >= 1) {
+        onAdvance();
+        return;
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+    // eslint-disable-next-line
+  }, [open, step, paused]);
+
+  // Esc to skip
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e) => {
+      if (e.key === 'Escape') onSkip();
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); onAdvance(); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); onPrev(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, onAdvance, onPrev, onSkip]);
+
+  if (!open || !stop) return null;
+
+  // Viewport dimensions for clamping
+  const vw = typeof window !== 'undefined' ? window.innerWidth  : 1200;
+  const vh = typeof window !== 'undefined' ? window.innerHeight :  800;
+  const tooltipW = 340;
+  const tooltipH = 180;
+
+  // If the target isn't visible yet, render a centered fallback
+  let tipPos;
+  if (rect) {
+    tipPos = computeTooltipPos(rect, stop.placement || 'bottom', vw, vh, tooltipW, tooltipH);
+  } else {
+    tipPos = { top: vh / 2 - tooltipH / 2, left: vw / 2 - tooltipW / 2 };
+  }
+
+  const handlePause = () => {
+    if (!paused) {
+      // Capture elapsed time at moment of pause
+      elapsedAtPause.current += Date.now() - startedAt.current;
+      setPaused(true);
+    }
+  };
+  const handleResume = () => {
+    if (paused) {
+      startedAt.current = Date.now();
+      setPaused(false);
+    }
+  };
+
+  return (
+    <>
+      {/* Dim backdrop everywhere. The spotlight cutout sits on top of this. */}
+      <div
+        className="fixed inset-0 z-[80] fade-in pointer-events-none"
+        style={{ background: 'rgba(0, 0, 0, 0.62)', transition: 'opacity 200ms' }}
+      />
+
+      {/* Spotlight cutout — invisible box at the target's rect, with a massive
+          box-shadow that creates the dimmed surround. Only this box catches
+          pointer events for the target, so the user can click it through. */}
+      {rect && (
+        <div
+          className="fixed pointer-events-none"
+          style={{
+            top: rect.top - 6,
+            left: rect.left - 6,
+            width: rect.width + 12,
+            height: rect.height + 12,
+            borderRadius: 14,
+            zIndex: 81,
+            boxShadow: '0 0 0 9999px rgba(8, 12, 30, 0.62), 0 0 0 2px rgba(255,255,255,0.6) inset',
+            transition: 'top 220ms ease, left 220ms ease, width 220ms ease, height 220ms ease',
+          }}
+        />
+      )}
+
+      {/* Tooltip card */}
+      <div
+        ref={tooltipRef}
+        className="fixed z-[82] rounded-2xl shadow-2xl scale-in"
+        style={{
+          top: tipPos.top,
+          left: tipPos.left,
+          width: tooltipW,
+          background: 'var(--surface-elevated)',
+          border: '1px solid var(--border-strong)',
+          transition: 'top 220ms ease, left 220ms ease',
+        }}
+        onMouseEnter={handlePause}
+        onMouseLeave={handleResume}
+      >
+        {/* Brand-gradient top strip */}
+        <div
+          className="px-4 pt-4 pb-3 rounded-t-2xl text-white"
+          style={{ background: 'var(--brand-gradient)' }}
+        >
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <span className="text-[10px] uppercase tracking-[0.2em] font-bold opacity-90">
+              Tour · {step + 1} / {totalSteps}
+            </span>
+            <button
+              onClick={onSkip}
+              className="text-[10px] uppercase tracking-wider font-bold opacity-80 hover:opacity-100 transition"
+              style={{ color: '#fff' }}
+            >
+              Skip ×
+            </button>
+          </div>
+          <div
+            className="text-lg leading-tight"
+            style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.02em' }}
+          >
+            {stop.title}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="px-4 py-3.5">
+          <p className="text-sm leading-snug" style={{ color: 'var(--text-2)' }}>
+            {stop.body}
+          </p>
+
+          {/* Controls */}
+          <div className="mt-4 flex items-center gap-2">
+            <button
+              onClick={onPrev}
+              disabled={step === 0}
+              className="px-2.5 py-1.5 rounded-lg text-xs font-bold transition disabled:opacity-30 disabled:cursor-not-allowed"
+              style={{ color: 'var(--text-2)' }}
+            >
+              ← Prev
+            </button>
+            <div className="flex-1" />
+            {step < totalSteps - 1 ? (
+              <button
+                onClick={onAdvance}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white shadow-sm transition hover:scale-105 active:scale-95 flex items-center gap-1"
+                style={{ background: 'var(--brand-gradient)' }}
+              >
+                Next →
+              </button>
+            ) : (
+              <button
+                onClick={onClose}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold text-white shadow-sm transition hover:scale-105 active:scale-95"
+                style={{ background: 'var(--brand-gradient)' }}
+              >
+                Done
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Progress bar at the very bottom */}
+        <div className="h-1 rounded-b-2xl overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+          <div
+            className="h-full transition-[width] ease-linear"
+            style={{
+              width: `${progress * 100}%`,
+              background: 'var(--brand-gradient)',
+              transitionDuration: paused ? '0ms' : '120ms',
+            }}
+          />
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -1444,6 +1797,67 @@ export default function App() {
 
   // Contact Us — lead capture from demo viewers
   const [contactOpen, setContactOpen] = useState(false);
+
+  // Product tour state
+  const [tourOpen, setTourOpen] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
+  // When the tour visits Ledger stops it asks LedgerView to force a specific view
+  const [tourLedgerView, setTourLedgerView] = useState(null);
+
+  const closeTour = () => {
+    setTourOpen(false);
+    setTourLedgerView(null);
+    try { localStorage.setItem('cine-tour-seen', '1'); } catch {}
+  };
+  const startTour = () => {
+    // Desktop only — small toast on mobile
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      flashToast('info', 'Tour available on desktop — resize to enjoy');
+      return;
+    }
+    setTourStep(0);
+    setTourOpen(true);
+  };
+  const advanceTour = () => {
+    if (tourStep < TOUR_STOPS.length - 1) {
+      setTourStep(s => s + 1);
+    } else {
+      closeTour();
+    }
+  };
+  const prevTour = () => setTourStep(s => Math.max(0, s - 1));
+
+  // When the tour's step changes, perform any side effects the stop requests:
+  //   - switch screen
+  //   - force ledger view
+  //   - pre-select the first project (for stops that need a project context)
+  useEffect(() => {
+    if (!tourOpen) return;
+    const stop = TOUR_STOPS[tourStep];
+    if (!stop) return;
+    if (stop.screen && screen !== stop.screen) setScreen(stop.screen);
+    if (stop.ledgerView) setTourLedgerView(stop.ledgerView);
+    else if (!stop.screen || stop.screen !== 'ledger') setTourLedgerView(null);
+    if (stop.selectFirstProject) {
+      const first = projects.find(p => p.enabled !== false);
+      if (first && selectedProjectId !== first.id) setSelectedProjectId(first.id);
+    }
+  }, [tourOpen, tourStep]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-start the tour the first time a demo viewer lands. One-shot per browser.
+  useEffect(() => {
+    if (!loaded || !isDemo) return;
+    if (typeof window === 'undefined') return;
+    if (window.innerWidth < 768) return; // desktop-only
+    let seen = null;
+    try { seen = localStorage.getItem('cine-tour-seen'); } catch {}
+    if (seen) return;
+    const t = setTimeout(() => {
+      setTourStep(0);
+      setTourOpen(true);
+    }, 900);
+    return () => clearTimeout(t);
+  }, [loaded, isDemo]);
   const submitLead = async (lead) => {
     // Lead capture is the developer's "marketing endpoint" and must NOT depend
     // on settings.scriptUrl (which is an admin-configurable value persisted in
@@ -1527,6 +1941,7 @@ export default function App() {
             isDemo={isDemo}
             onSignIn={() => setWantsLogin(true)}
             onContact={() => setContactOpen(true)}
+            onStartTour={startTour}
           />
 
           {visibleProjects.length > 0 && (
@@ -1556,6 +1971,7 @@ export default function App() {
                 onDelete={deleteBill}
                 onNewBill={() => setScreen('form')}
                 projectFilter={selectedProjectId ? visibleProjects.find(p => p.id === selectedProjectId) : null}
+                forceView={tourLedgerView}
               />
             ) : screen === 'projects' ? (
               <ProjectsScreen
@@ -1610,6 +2026,16 @@ export default function App() {
             onClose={() => setContactOpen(false)}
             onSubmit={submitLead}
           />
+
+          <ProductTour
+            open={tourOpen}
+            step={tourStep}
+            totalSteps={TOUR_STOPS.length}
+            onAdvance={advanceTour}
+            onPrev={prevTour}
+            onSkip={closeTour}
+            onClose={closeTour}
+          />
         </>
       )}
     </div>
@@ -1619,7 +2045,7 @@ export default function App() {
 // ============================================================
 // HEADER
 // ============================================================
-function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, settingsConfigured, isAdmin, authUser, onLogout, paletteId, onPaletteChange, isDemo, onSignIn, onContact }) {
+function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, settingsConfigured, isAdmin, authUser, onLogout, paletteId, onPaletteChange, isDemo, onSignIn, onContact, onStartTour }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   useEffect(() => {
@@ -1634,7 +2060,7 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
       style={{ background: 'var(--header-bg)', borderColor: 'var(--header-border)' }}
     >
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0" data-tour="brand">
           <div className="relative flex-shrink-0">
             <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shadow-lg" style={{
               background: 'linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 50%, var(--brand-3) 100%)',
@@ -1694,7 +2120,18 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
               {/* Desktop: full text pills */}
               <div className="hidden sm:flex items-center gap-2">
                 <button
+                  onClick={onStartTour}
+                  aria-label="Replay tour"
+                  className="px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 border transition hover:scale-105 active:scale-95"
+                  style={{ borderColor: 'var(--border-strong)', color: 'var(--text-2)', background: 'var(--surface)' }}
+                  title="Replay product tour"
+                >
+                  <Sparkles className="w-3.5 h-3.5" style={{ color: 'var(--brand-1)' }} />
+                  Tour
+                </button>
+                <button
                   onClick={onContact}
+                  data-tour="contact-cta"
                   className="px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 text-white shadow-md transition hover:scale-105 active:scale-95"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
@@ -1713,6 +2150,7 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
               <div className="flex sm:hidden items-center gap-2">
                 <button
                   onClick={onContact}
+                  data-tour="contact-cta"
                   aria-label="Contact Us"
                   className="w-9 h-9 rounded-full flex items-center justify-center text-white shadow-md transition active:scale-95"
                   style={{ background: 'var(--brand-gradient)' }}
@@ -1732,7 +2170,7 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
           )}
 
           {/* User menu (logout) */}
-          <div className="relative" ref={menuRef}>
+          <div className="relative" ref={menuRef} data-tour="user-menu">
             <button
               onClick={() => setMenuOpen(v => !v)}
               aria-label="Account"
@@ -1926,7 +2364,7 @@ function ProjectSelector({ projects, selectedId, onChange }) {
         borderColor: 'var(--header-border)',
       }}
     >
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-2.5 flex items-center gap-3" ref={ref}>
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-2.5 flex items-center gap-3" ref={ref} data-tour="project-selector">
         <span className="text-[10px] font-bold tracking-[0.2em] uppercase hidden sm:inline" style={{ color: 'var(--text-3)' }}>
           Project
         </span>
@@ -2228,7 +2666,7 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
   const allPartyOptions = parties.map(p => p.name);
 
   return (
-    <div className="fade-in">
+    <div className="fade-in" data-tour="new-bill-card">
       <ScreenHeader
         eyebrow="Step 01"
         title="New Bill Entry"
@@ -2785,8 +3223,12 @@ function StatusSelect({ value, onChange }) {
 // ============================================================
 // LEDGER VIEW
 // ============================================================
-function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter }) {
+function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter, forceView }) {
   const [view, setView] = useState('table');
+  // The product tour can force the ledger into a specific view to highlight it.
+  useEffect(() => {
+    if (forceView && forceView !== view) setView(forceView);
+  }, [forceView]); // eslint-disable-line react-hooks/exhaustive-deps
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null);
 
@@ -2885,7 +3327,7 @@ function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter }) {
             style={{ background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' }}
           />
         </div>
-        <div className="flex border rounded-xl p-1 gap-1 flex-wrap" style={{ background: 'var(--surface-3)', borderColor: 'var(--border)' }}>
+        <div className="flex border rounded-xl p-1 gap-1 flex-wrap" style={{ background: 'var(--surface-3)', borderColor: 'var(--border)' }} data-tour="ledger-views">
           <ViewToggle active={view === 'table'}      onClick={() => { setView('table');      setSelected(null); }} icon={FileText}   label="Table" />
           <ViewToggle active={view === 'department'} onClick={() => { setView('department'); setSelected(null); }} icon={Briefcase}  label="Department" />
           <ViewToggle active={view === 'individual'} onClick={() => { setView('individual'); setSelected(null); }} icon={User}       label="Individual" />
