@@ -402,50 +402,22 @@ function PalettePicker({ current, onChange, columns = 6 }) {
   );
 }
 
-// Banner shown while a demo session is active
-function DemoBanner({ onSignIn, onExit, onContact }) {
+// Slim banner shown above the Header during a demo session.
+// The Sign In and Contact Us CTAs now live in the Header itself —
+// this strip is just a passive "you are in a demo" indicator.
+function DemoBanner() {
   return (
     <div
-      className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2 text-white text-xs sm:text-sm"
+      className="px-3 sm:px-4 py-1.5 flex items-center justify-center gap-2 text-white text-[11px] sm:text-xs"
       style={{
         background: 'linear-gradient(90deg, var(--brand-1) 0%, var(--brand-2) 50%, var(--brand-3) 100%)',
         fontWeight: 600,
       }}
     >
-      <div className="flex items-center gap-2 min-w-0">
-        <Clapperboard className="w-4 h-4 flex-shrink-0" />
-        <span className="truncate">
-          <span className="font-bold tracking-wider mr-2">DEMO MODE</span>
-          <span className="hidden sm:inline opacity-90">Sample data · changes are session-only · no Drive sync</span>
-          <span className="sm:hidden opacity-90">Sample data, session-only</span>
-        </span>
-      </div>
-      <div className="flex items-center gap-2 flex-shrink-0">
-        {onContact && (
-          <button
-            onClick={onContact}
-            className="px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition flex items-center gap-1"
-            style={{ background: 'rgba(0,0,0,0.25)', color: '#fff' }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,0,0,0.4)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,0,0,0.25)'}
-          >
-            <Mail className="w-3 h-3" />
-            <span className="hidden sm:inline">Contact Us</span>
-            <span className="sm:hidden">Contact</span>
-          </button>
-        )}
-        {onSignIn && (
-          <button
-            onClick={onSignIn}
-            className="px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition"
-            style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--brand-1)' }}
-            onMouseEnter={e => e.currentTarget.style.background = '#ffffff'}
-            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.95)'}
-          >
-            Sign In
-          </button>
-        )}
-      </div>
+      <Clapperboard className="w-3.5 h-3.5 flex-shrink-0" />
+      <span className="font-bold tracking-wider">DEMO MODE</span>
+      <span className="opacity-80">·</span>
+      <span className="opacity-90 truncate">Sample data · session-only · no Drive sync</span>
     </div>
   );
 }
@@ -1539,7 +1511,7 @@ export default function App() {
         <LoginScreen onLogin={tryLogin} onStartDemo={startDemo} theme={theme} toggleTheme={toggleTheme} />
       ) : (
         <>
-          {isDemo && <DemoBanner onSignIn={() => setWantsLogin(true)} onExit={logout} onContact={() => setContactOpen(true)} />}
+          {isDemo && <DemoBanner />}
           <Header
             screen={screen}
             setScreen={setScreen}
@@ -1552,6 +1524,9 @@ export default function App() {
             onLogout={logout}
             paletteId={paletteId}
             onPaletteChange={changePalette}
+            isDemo={isDemo}
+            onSignIn={() => setWantsLogin(true)}
+            onContact={() => setContactOpen(true)}
           />
 
           {visibleProjects.length > 0 && (
@@ -1644,7 +1619,7 @@ export default function App() {
 // ============================================================
 // HEADER
 // ============================================================
-function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, settingsConfigured, isAdmin, authUser, onLogout, paletteId, onPaletteChange }) {
+function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, settingsConfigured, isAdmin, authUser, onLogout, paletteId, onPaletteChange, isDemo, onSignIn, onContact }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   useEffect(() => {
@@ -1712,6 +1687,49 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
             <NavBtn active={screen === 'ledger'}   onClick={() => setScreen('ledger')}   icon={Wallet}     label="Ledger" />
             <NavBtn active={screen === 'projects'} onClick={() => setScreen('projects')} icon={FolderOpen} label="Projects" />
           </nav>
+
+          {/* Demo-only CTAs — appear next to the nav in demo sessions only */}
+          {isDemo && (
+            <>
+              {/* Desktop: full text pills */}
+              <div className="hidden sm:flex items-center gap-2">
+                <button
+                  onClick={onContact}
+                  className="px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 text-white shadow-md transition hover:scale-105 active:scale-95"
+                  style={{ background: 'var(--brand-gradient)' }}
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  Contact Us
+                </button>
+                <button
+                  onClick={onSignIn}
+                  className="px-3 py-1.5 rounded-full text-xs font-bold border transition hover:scale-105 active:scale-95"
+                  style={{ borderColor: 'var(--border-strong)', color: 'var(--text)', background: 'var(--surface)' }}
+                >
+                  Sign In
+                </button>
+              </div>
+              {/* Mobile: icon-only buttons to save space */}
+              <div className="flex sm:hidden items-center gap-2">
+                <button
+                  onClick={onContact}
+                  aria-label="Contact Us"
+                  className="w-9 h-9 rounded-full flex items-center justify-center text-white shadow-md transition active:scale-95"
+                  style={{ background: 'var(--brand-gradient)' }}
+                >
+                  <Mail className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={onSignIn}
+                  aria-label="Sign In"
+                  className="px-2.5 h-9 rounded-full text-[11px] font-bold border transition active:scale-95"
+                  style={{ borderColor: 'var(--border-strong)', color: 'var(--text)', background: 'var(--surface)' }}
+                >
+                  Sign In
+                </button>
+              </div>
+            </>
+          )}
 
           {/* User menu (logout) */}
           <div className="relative" ref={menuRef}>
