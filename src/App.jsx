@@ -1537,8 +1537,14 @@ function ComboBox({ value, onChange, options, placeholder, onCreate, createLabel
       />
       {open && (filtered.length > 0 || canCreate || emptyHint) && (
         <div
-          className="absolute z-40 left-0 right-0 top-full mt-1 rounded-xl border overflow-hidden scale-in"
-          style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-lg)' }}
+          className="absolute z-50 left-0 right-0 top-full mt-1 rounded-xl border overflow-hidden scale-in"
+          style={{
+            background: 'var(--surface-elevated)',
+            borderColor: 'var(--border-strong)',
+            boxShadow: 'var(--shadow-lg)',
+            backdropFilter: 'blur(4px)',
+            WebkitBackdropFilter: 'blur(4px)',
+          }}
         >
           <div className="max-h-64 overflow-y-auto">
             {filtered.length > 0 ? (
@@ -1552,7 +1558,7 @@ function ComboBox({ value, onChange, options, placeholder, onCreate, createLabel
                     onClick={() => handleSelect(o)}
                     className="w-full px-4 py-2.5 text-left text-sm flex items-center gap-2"
                     style={{
-                      background: isActive ? 'var(--surface-hover)' : 'transparent',
+                      background: isActive ? 'var(--surface-3)' : 'transparent',
                       color: 'var(--text)',
                     }}
                   >
@@ -1573,7 +1579,7 @@ function ComboBox({ value, onChange, options, placeholder, onCreate, createLabel
               type="button"
               onClick={handleCreate}
               className="w-full px-4 py-3 text-left text-sm flex items-center gap-2 border-t font-semibold"
-              style={{ borderColor: 'var(--border)', color: '#E11D74', background: 'var(--surface-2)' }}
+              style={{ borderColor: 'var(--border)', color: '#E11D74', background: 'var(--surface-3)' }}
             >
               <Plus className="w-4 h-4" />
               Add "<span className="truncate max-w-[180px] inline-block align-bottom">{search.trim()}</span>" as new {createLabel}
