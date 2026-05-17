@@ -1,0 +1,3015 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  Film, Plus, FileText, Wallet, ChevronDown, Search, Calendar,
+  Building2, User, CreditCard, Smartphone, Banknote, FileCheck, Trash2,
+  X, Paperclip, ArrowUpRight, ArrowDownRight, Clapperboard,
+  TrendingUp, Hash, Briefcase, CheckCircle2, Clock, AlertCircle,
+  Image as ImageIcon, FileIcon, Receipt, ArrowLeft, Sun, Moon,
+  RefreshCw, Pencil, FolderOpen,
+  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check
+} from 'lucide-react';
+
+
+// ============================================================
+// STORAGE SHIM — supports both window.storage (Claude artifact)
+// and localStorage (deployed environment). Keeps API identical.
+// ============================================================
+if (typeof window !== 'undefined' && !window.storage) {
+  window.storage = {
+    async get(key) {
+      try {
+        const v = localStorage.getItem(key);
+        return v === null ? null : { key, value: v, shared: false };
+      } catch (e) { return null; }
+    },
+    async set(key, value) {
+      try {
+        localStorage.setItem(key, value);
+        return { key, value, shared: false };
+      } catch (e) { return null; }
+    },
+    async delete(key) {
+      try {
+        localStorage.removeItem(key);
+        return { key, deleted: true, shared: false };
+      } catch (e) { return null; }
+    },
+    async list() { return { keys: Object.keys(localStorage) }; },
+  };
+}
+
+
+// ============================================================
+// WHITE LABEL: Change these to rebrand the app
+// ============================================================
+const BRAND = {
+  name: 'CineLedger',
+  tagline: 'Accounts for the silver screen',
+  copyright: 'BrandEpic',
+  author: 'Aang',
+};
+
+const DEPARTMENTS = [
+  { name: 'Direction',        color: '#E11D74', emoji: '🎬' },
+  { name: 'Production',       color: '#2563EB', emoji: '🎥' },
+  { name: 'Cinematography',   color: '#EA580C', emoji: '📷' },
+  { name: 'Art & Design',     color: '#DB2777', emoji: '🎨' },
+  { name: 'Costume',          color: '#C026D3', emoji: '👗' },
+  { name: 'Makeup & Hair',    color: '#E11D48', emoji: '💄' },
+  { name: 'Sound',            color: '#4F46E5', emoji: '🎵' },
+  { name: 'Editing',          color: '#0D9488', emoji: '✂️' },
+  { name: 'VFX',              color: '#7C3AED', emoji: '✨' },
+  { name: 'Music',            color: '#D97706', emoji: '🎼' },
+  { name: 'Lighting',         color: '#CA8A04', emoji: '💡' },
+  { name: 'Stunts',           color: '#DC2626', emoji: '🤸' },
+  { name: 'Locations',        color: '#16A34A', emoji: '📍' },
+  { name: 'Catering',         color: '#65A30D', emoji: '🍽️' },
+  { name: 'Transport',        color: '#0891B2', emoji: '🚐' },
+  { name: 'Post-Production',  color: '#059669', emoji: '🎞️' },
+  { name: 'Marketing & PR',   color: '#F97316', emoji: '📣' },
+  { name: 'Miscellaneous',    color: '#64748B', emoji: '📦' },
+];
+
+const PAYMENT_MODES = [
+  { value: 'cash',   label: 'Cash',         icon: Banknote,   needs: [] },
+  { value: 'cheque', label: 'Cheque',       icon: FileCheck,  needs: ['chequeNo', 'bank'] },
+  { value: 'gpay',   label: 'GPay',         icon: Smartphone, needs: ['txnId'] },
+  { value: 'upi',    label: 'UPI',          icon: Smartphone, needs: ['upiId', 'txnId'] },
+  { value: 'neft',   label: 'NEFT / RTGS',  icon: Building2,  needs: ['utr', 'bank'] },
+  { value: 'card',   label: 'Card',         icon: CreditCard, needs: ['cardLast4'] },
+];
+
+const STATUSES = [
+  { value: 'paid',     label: 'Paid',     color: '#16A34A', icon: CheckCircle2 },
+  { value: 'pending',  label: 'Pending',  color: '#CA8A04', icon: Clock },
+  { value: 'approved', label: 'Approved', color: '#2563EB', icon: AlertCircle },
+];
+
+const PROJECT_COLORS = [
+  '#E11D74', '#2563EB', '#EA580C', '#16A34A',
+  '#7C3AED', '#D97706', '#0891B2', '#DC2626',
+  '#0D9488', '#C026D3', '#65A30D', '#4F46E5',
+];
+
+// ============================================================
+// GOOGLE DRIVE INTEGRATION
+// ----------------------------------------------------------------
+// Talks to a Google Apps Script Web App that you deploy yourself.
+// See cine-ledger-apps-script.gs in this folder for the script
+// code. The Apps Script handles all Drive + Sheets operations and
+// maintains a "CineLedger Config" sheet as the source of truth.
+// ============================================================
+const DRIVE_PARENT_FOLDER_ID = '1Q-eSFalmrtrzZVh0Ukgrl08S9RT8bF2G';
+// Seed value for the Apps Script URL. Set to '' if you don't want a default.
+const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyz8bfG08Tv5aZKJrpeuzyu65EFLm9v9quA2GJDqG7FBybD6KFTn6pvVbD8Eg7uT4IgSg/exec';
+
+const driveAdapter = {
+  async call(scriptUrl, action, payload = {}) {
+    if (!scriptUrl) throw new Error('Apps Script URL not configured — open Settings');
+    let res;
+    try {
+      res = await fetch(scriptUrl, {
+        method: 'POST',
+        // text/plain avoids the CORS preflight that Apps Script doesn't handle
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action, ...payload }),
+        redirect: 'follow',
+        mode: 'cors',
+        credentials: 'omit',
+      });
+    } catch (e) {
+      throw new Error(
+        'Could not reach Apps Script. Most likely causes:\n' +
+        '• In this Claude preview, external POSTs to script.google.com are blocked by the sandbox — the call will work once you deploy this app outside the preview.\n' +
+        '• Open the URL in a new browser tab to confirm the script is alive (you should see JSON).\n' +
+        '• Deployment must be "Execute as: Me" + "Who has access: Anyone".\n' +
+        'Raw: ' + (e.message || String(e))
+      );
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status} from Apps Script`);
+    const text = await res.text();
+    let data;
+    try { data = JSON.parse(text); }
+    catch (e) { throw new Error('Bad response from Apps Script (not JSON): ' + text.slice(0, 200)); }
+    if (data.error) throw new Error(data.error);
+    return data;
+  },
+
+  ping(scriptUrl)                              { return this.call(scriptUrl, 'ping'); },
+  getConfig(scriptUrl)                         { return this.call(scriptUrl, 'getConfig'); },
+  updateConfig(scriptUrl, row)                 { return this.call(scriptUrl, 'updateConfig', { row }); },
+  deleteProject(scriptUrl, projectName)        { return this.call(scriptUrl, 'deleteProject', { projectName }); },
+  syncProject(scriptUrl, projectName, prefix, bills) {
+    return this.call(scriptUrl, 'syncProject', { projectName, prefix, bills });
+  },
+};
+
+// ============================================================
+// DATA LAYER — swap these with API calls when you have a backend
+// ============================================================
+const dataLayer = {
+  get: async (key) => {
+    try {
+      const r = await window.storage.get(key);
+      return r?.value ? JSON.parse(r.value) : null;
+    } catch (e) { return null; }
+  },
+  set: async (key, value) => {
+    try { await window.storage.set(key, JSON.stringify(value)); } catch (e) {}
+  },
+  getRaw: async (key) => {
+    try {
+      const r = await window.storage.get(key);
+      return r?.value || null;
+    } catch (e) { return null; }
+  },
+  setRaw: async (key, value) => {
+    try { await window.storage.set(key, value); } catch (e) {}
+  },
+};
+
+// ============================================================
+// HELPERS
+// ============================================================
+const formatCurrency = (n) => '₹' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+const formatDate = (d) => d ? new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '';
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const getDept = (name) => DEPARTMENTS.find(d => d.name === name) || DEPARTMENTS[DEPARTMENTS.length - 1];
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+const suggestPrefix = (name) => {
+  if (!name) return '';
+  const words = name.trim().split(/\s+/).filter(w => /[A-Za-z]/.test(w));
+  if (words.length === 0) return '';
+  if (words.length === 1) {
+    return words[0].toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 4);
+  }
+  return words.map(w => {
+    const upper = w.match(/[A-Z]/);
+    return upper ? upper[0] : w[0].toUpperCase();
+  }).join('').slice(0, 5);
+};
+
+const generateBillNo = (projectName, projects, bills) => {
+  if (!projectName) return '';
+  const project = projects.find(p => p.name.toLowerCase() === projectName.toLowerCase());
+  const prefix = ((project?.prefix) || suggestPrefix(projectName) || 'BILL').toUpperCase();
+  const count = bills.filter(b => b.project && b.project.toLowerCase() === projectName.toLowerCase()).length;
+  return `${prefix}-${String(count + 1).padStart(4, '0')}`;
+};
+
+// ============================================================
+// THEME CSS
+// ============================================================
+const THEME_CSS = `
+  .theme-light {
+    --bg: radial-gradient(ellipse 80% 60% at 15% 0%, #FFF1F5 0%, transparent 55%),
+          radial-gradient(ellipse 70% 60% at 90% 20%, #FFF7DC 0%, transparent 55%),
+          radial-gradient(ellipse 80% 80% at 50% 110%, #EAF1FF 0%, transparent 60%),
+          #FCFCFE;
+    --surface: #ffffff;
+    --surface-2: #f8fafc;
+    --surface-3: #f1f5f9;
+    --surface-elevated: #ffffff;
+    --surface-hover: #f1f5f9;
+    --border: #e2e8f0;
+    --border-soft: rgba(226, 232, 240, 0.6);
+    --border-strong: #cbd5e1;
+    --text: #0f172a;
+    --text-2: #334155;
+    --text-3: #64748b;
+    --text-4: #94a3b8;
+    --text-divider: #cbd5e1;
+    --header-bg: rgba(255, 255, 255, 0.75);
+    --nav-bg: rgba(255, 255, 255, 0.9);
+    --header-border: rgba(226, 232, 240, 0.6);
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.04), 0 1px 3px 0 rgba(0, 0, 0, 0.04);
+    --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.15);
+    --overlay: rgba(15, 23, 42, 0.6);
+    --badge-sent-bg: #FEE2E2;
+    --badge-sent-text: #B91C1C;
+    --badge-recv-bg: #DCFCE7;
+    --badge-recv-text: #15803D;
+    --autofill-bg: #FAFAFC;
+    --autofill-text: #0F172A;
+    --select-option-bg: #ffffff;
+    --select-option-text: #0F172A;
+    --select-arrow: #64748b;
+    --money-paid: #059669;
+    --money-recv: #D97706;
+  }
+  .theme-dark {
+    --bg: radial-gradient(ellipse 80% 60% at 15% 0%, rgba(225, 29, 116, 0.18) 0%, transparent 55%),
+          radial-gradient(ellipse 70% 60% at 90% 20%, rgba(217, 119, 6, 0.12) 0%, transparent 55%),
+          radial-gradient(ellipse 80% 80% at 50% 110%, rgba(37, 99, 235, 0.14) 0%, transparent 60%),
+          #0A0E27;
+    --surface: rgba(255, 255, 255, 0.04);
+    --surface-2: rgba(255, 255, 255, 0.06);
+    --surface-3: rgba(255, 255, 255, 0.09);
+    --surface-elevated: #161B3A;
+    --surface-hover: rgba(255, 255, 255, 0.08);
+    --border: rgba(255, 255, 255, 0.1);
+    --border-soft: rgba(255, 255, 255, 0.06);
+    --border-strong: rgba(255, 255, 255, 0.2);
+    --text: #f1f5f9;
+    --text-2: #cbd5e1;
+    --text-3: #94a3b8;
+    --text-4: #64748b;
+    --text-divider: rgba(255, 255, 255, 0.15);
+    --header-bg: rgba(10, 14, 39, 0.72);
+    --nav-bg: rgba(10, 14, 39, 0.9);
+    --header-border: rgba(255, 255, 255, 0.08);
+    --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 30px -10px rgba(0, 0, 0, 0.6);
+    --overlay: rgba(2, 6, 23, 0.94);
+    --badge-sent-bg: rgba(239, 68, 68, 0.18);
+    --badge-sent-text: #FCA5A5;
+    --badge-recv-bg: rgba(34, 197, 94, 0.18);
+    --badge-recv-text: #86EFAC;
+    --autofill-bg: rgba(255, 255, 255, 0.05);
+    --autofill-text: #f1f5f9;
+    --select-option-bg: #1e293b;
+    --select-option-text: #f1f5f9;
+    --select-arrow: #94a3b8;
+    --money-paid: #34D399;
+    --money-recv: #FBBF24;
+  }
+
+  input:-webkit-autofill, input:-webkit-autofill:hover, input:-webkit-autofill:focus,
+  select:-webkit-autofill, textarea:-webkit-autofill {
+    -webkit-text-fill-color: var(--autofill-text) !important;
+    -webkit-box-shadow: 0 0 0 1000px var(--autofill-bg) inset !important;
+    transition: background-color 5000s ease-in-out 0s;
+  }
+  select option {
+    background-color: var(--select-option-bg);
+    color: var(--select-option-text);
+  }
+  @keyframes slideup { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  .fade-in { animation: fadeIn 0.4s ease-out both; }
+  .scale-in { animation: scaleIn 0.2s ease-out both; }
+  .theme-transition, .theme-transition * { transition: background-color 0.25s ease, color 0.2s ease, border-color 0.25s ease, box-shadow 0.25s ease; }
+`;
+
+// ============================================================
+// FONT LOADER
+// ============================================================
+function FontLoader() {
+  useEffect(() => {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap';
+    document.head.appendChild(link);
+    return () => { try { document.head.removeChild(link); } catch (e) {} };
+  }, []);
+  return null;
+}
+
+// ============================================================
+// MAIN APP
+// ============================================================
+export default function App() {
+  const [screen, setScreen] = useState('form');
+  const [bills, setBills] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [parties, setParties] = useState([]);
+  const [selectedProjectId, setSelectedProjectId] = useState(null);
+  const [settings, setSettings] = useState({
+    scriptUrl: DEFAULT_SCRIPT_URL,
+    parentFolderId: DRIVE_PARENT_FOLDER_ID,
+    configSheetUrl: '',
+  });
+  const [loaded, setLoaded] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  const [theme, setTheme] = useState(() => {
+    try {
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+    } catch (e) {}
+    return 'light';
+  });
+
+  useEffect(() => {
+    (async () => {
+      const [b, pr, pa, t, sel, st] = await Promise.all([
+        dataLayer.get('cine-bills'),
+        dataLayer.get('cine-projects'),
+        dataLayer.get('cine-parties'),
+        dataLayer.getRaw('cine-theme'),
+        dataLayer.getRaw('cine-selected-project'),
+        dataLayer.get('cine-settings'),
+      ]);
+      if (Array.isArray(b)) setBills(b);
+      if (Array.isArray(pr)) setProjects(pr);
+      if (Array.isArray(pa)) setParties(pa);
+      if (t === 'dark' || t === 'light') setTheme(t);
+      if (sel) setSelectedProjectId(sel);
+      if (st && typeof st === 'object') {
+        setSettings(s => ({
+          ...s,
+          ...st,
+          scriptUrl: st.scriptUrl || s.scriptUrl, // keep default if saved is empty
+          parentFolderId: st.parentFolderId || s.parentFolderId,
+        }));
+      }
+      setLoaded(true);
+    })();
+  }, []);
+
+  const persistBills    = (next) => { setBills(next);    dataLayer.set('cine-bills', next); };
+  const persistProjects = (next) => { setProjects(next); dataLayer.set('cine-projects', next); };
+  const persistParties  = (next) => { setParties(next);  dataLayer.set('cine-parties', next); };
+  const persistSettings = (next) => { setSettings(next); dataLayer.set('cine-settings', next); };
+
+  const updateSettings = (patch) => persistSettings({ ...settings, ...patch });
+
+  const selectProject = (id) => {
+    setSelectedProjectId(id);
+    if (id) dataLayer.setRaw('cine-selected-project', id);
+    else    dataLayer.setRaw('cine-selected-project', '');
+  };
+
+  // Apply a partial update to a single project's record (used for drive status)
+  const patchProject = (id, patch) => {
+    setProjects(prev => {
+      const next = prev.map(p => p.id === id ? { ...p, ...patch } : p);
+      dataLayer.set('cine-projects', next);
+      return next;
+    });
+  };
+
+  // Sync this project's bills to Drive — creates folder + sheet on first run
+  // (idempotent on the Apps Script side), then writes all bills for the project.
+  const syncProjectBills = async (projectId) => {
+    const project = projects.find(p => p.id === projectId);
+    if (!project) return { ok: false };
+    if (!settings.scriptUrl) {
+      flashToast('info', 'Set the Apps Script URL in Settings first');
+      return { ok: false };
+    }
+    patchProject(projectId, { driveStatus: 'syncing', driveError: null });
+    const projectBills = bills.filter(b => b.project && b.project.toLowerCase() === project.name.toLowerCase());
+    try {
+      const r = await driveAdapter.syncProject(settings.scriptUrl, project.name, project.prefix, projectBills);
+      patchProject(projectId, {
+        driveStatus: 'synced',
+        driveFolderId: r.folderId,
+        driveFolderUrl: r.folderUrl,
+        driveSheetId: r.sheetId,
+        driveSheetUrl: r.sheetUrl,
+        driveSyncedAt: new Date().toISOString(),
+        driveError: null,
+      });
+      if (r.configSheetUrl && r.configSheetUrl !== settings.configSheetUrl) {
+        persistSettings({ ...settings, configSheetUrl: r.configSheetUrl });
+      }
+      // Apply newly-uploaded Drive URLs onto each bill's attachments
+      const uploads = r.attachmentsUploaded || {};
+      if (Object.keys(uploads).length > 0) {
+        const updated = bills.map(b => {
+          const ups = uploads[b.id];
+          if (!ups || ups.length === 0 || !b.attachments) return b;
+          const byIdx = {};
+          ups.forEach(u => { byIdx[u.index] = u; });
+          return {
+            ...b,
+            attachments: b.attachments.map((att, i) =>
+              byIdx[i] ? { ...att, driveUrl: byIdx[i].url, driveId: byIdx[i].id } : att
+            ),
+          };
+        });
+        persistBills(updated);
+      }
+      flashToast('success', `Synced ${r.billsSynced ?? projectBills.length} bill${(r.billsSynced ?? projectBills.length) === 1 ? '' : 's'} to Drive`);
+      return { ok: true, ...r };
+    } catch (e) {
+      patchProject(projectId, { driveStatus: 'failed', driveError: String(e.message || e) });
+      flashToast('info', 'Sync failed — open project for details');
+      return { ok: false, error: e.message };
+    }
+  };
+
+  // Pull the latest Config-sheet state into local projects (matches by name)
+  const refreshConfigFromDrive = async () => {
+    if (!settings.scriptUrl) {
+      flashToast('info', 'Set the Apps Script URL in Settings first');
+      return { ok: false };
+    }
+    try {
+      const r = await driveAdapter.getConfig(settings.scriptUrl);
+      // Update local projects with drive fields from config
+      const byName = new Map((r.projects || []).map(p => [p.name.toLowerCase(), p]));
+      const next = projects.map(p => {
+        const cfg = byName.get(p.name.toLowerCase());
+        if (!cfg) return p;
+        return {
+          ...p,
+          driveStatus: cfg.sheetId ? 'synced' : (p.driveStatus || 'pending'),
+          driveFolderId: cfg.folderId || p.driveFolderId,
+          driveFolderUrl: cfg.folderUrl || p.driveFolderUrl,
+          driveSheetId: cfg.sheetId || p.driveSheetId,
+          driveSheetUrl: cfg.sheetUrl || p.driveSheetUrl,
+          driveSyncedAt: cfg.lastSynced || p.driveSyncedAt,
+        };
+      });
+      persistProjects(next);
+      persistSettings({ ...settings, configSheetUrl: r.configSheetUrl || settings.configSheetUrl });
+      flashToast('success', `Refreshed ${r.projects?.length || 0} entries from Drive`);
+      return { ok: true, ...r };
+    } catch (e) {
+      flashToast('info', 'Refresh failed: ' + (e.message || e));
+      return { ok: false, error: e.message };
+    }
+  };
+
+  // Push a manually-edited config row to Drive (admin override)
+  const pushConfigRow = async (row) => {
+    if (!settings.scriptUrl) {
+      flashToast('info', 'Set the Apps Script URL in Settings first');
+      return { ok: false };
+    }
+    try {
+      await driveAdapter.updateConfig(settings.scriptUrl, row);
+      // mirror locally
+      const proj = projects.find(p => p.name.toLowerCase() === row.name.toLowerCase());
+      if (proj) {
+        patchProject(proj.id, {
+          driveFolderId: row.folderId, driveFolderUrl: row.folderUrl,
+          driveSheetId:  row.sheetId,  driveSheetUrl:  row.sheetUrl,
+          driveStatus:   row.sheetId ? 'synced' : proj.driveStatus,
+        });
+      }
+      flashToast('success', 'Config updated');
+      return { ok: true };
+    } catch (e) {
+      flashToast('info', 'Update failed: ' + (e.message || e));
+      return { ok: false, error: e.message };
+    }
+  };
+
+  const flashToast = (kind, msg) => {
+    setToast({ kind, msg });
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  const toggleTheme = async () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    dataLayer.setRaw('cine-theme', next);
+  };
+
+  // ----- Projects CRUD -----
+  const addProject = (data) => {
+    const trimmedName = data.name.trim();
+    if (!trimmedName) return null;
+    if (projects.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())) {
+      return projects.find(p => p.name.toLowerCase() === trimmedName.toLowerCase());
+    }
+    const newProject = {
+      id: uid(),
+      name: trimmedName,
+      prefix: (data.prefix || suggestPrefix(trimmedName) || 'BILL').toUpperCase(),
+      color: data.color || PROJECT_COLORS[projects.length % PROJECT_COLORS.length],
+      notes: (data.notes || '').trim(),
+      createdAt: new Date().toISOString(),
+      driveStatus: 'pending',
+      driveFolderId: null,
+      driveFolderUrl: null,
+      driveSheetId: null,
+      driveSheetUrl: null,
+      driveError: null,
+      driveSyncedAt: null,
+    };
+    persistProjects([newProject, ...projects]);
+    return newProject;
+  };
+
+  const updateProject = (id, data) => {
+    const next = projects.map(p => p.id === id ? {
+      ...p,
+      name: data.name?.trim() ?? p.name,
+      prefix: (data.prefix ?? p.prefix).toUpperCase(),
+      color: data.color ?? p.color,
+      notes: data.notes ?? p.notes,
+    } : p);
+    persistProjects(next);
+  };
+
+  const deleteProject = (id) => {
+    persistProjects(projects.filter(p => p.id !== id));
+  };
+
+  // ----- Parties (auto-managed) -----
+  const addPartyIfNew = (name, currentParties = parties) => {
+    const trimmed = name?.trim();
+    if (!trimmed) return currentParties;
+    if (currentParties.some(p => p.name.toLowerCase() === trimmed.toLowerCase())) return currentParties;
+    const newParty = { id: uid(), name: trimmed, createdAt: new Date().toISOString() };
+    const next = [newParty, ...currentParties];
+    persistParties(next);
+    return next;
+  };
+
+  // ----- Bill save (auto-creates project/parties if new) -----
+  const saveBill = (bill) => {
+    // Auto-create project if it doesn't exist
+    if (bill.project && !projects.some(p => p.name.toLowerCase() === bill.project.toLowerCase())) {
+      addProject({ name: bill.project });
+    }
+    // Auto-add parties
+    let nextParties = parties;
+    nextParties = addPartyIfNew(bill.paidBy, nextParties);
+    nextParties = addPartyIfNew(bill.paidTo, nextParties);
+
+    const newBill = { ...bill, id: uid(), createdAt: new Date().toISOString() };
+    persistBills([newBill, ...bills]);
+    flashToast('success', 'Bill saved to ledger');
+  };
+
+  const deleteBill = (id) => {
+    persistBills(bills.filter(b => b.id !== id));
+    flashToast('info', 'Bill removed');
+  };
+
+  return (
+    <div
+      className={`min-h-screen relative theme-transition theme-${theme} flex flex-col`}
+      style={{
+        fontFamily: '"DM Sans", system-ui, sans-serif',
+        background: 'var(--bg)',
+        color: 'var(--text)',
+      }}
+    >
+      <style>{THEME_CSS}</style>
+      <FontLoader />
+
+      <Header
+        screen={screen}
+        setScreen={setScreen}
+        theme={theme}
+        toggleTheme={toggleTheme}
+        onOpenSettings={() => setScreen('settings')}
+        settingsConfigured={Boolean(settings.scriptUrl)}
+      />
+
+      {loaded && projects.length > 0 && (
+        <ProjectSelector
+          projects={projects}
+          selectedId={selectedProjectId}
+          onChange={selectProject}
+        />
+      )}
+
+      <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 pb-8 pt-4 sm:pt-6 relative z-10">
+        {!loaded ? (
+          <div className="text-center py-20" style={{ color: 'var(--text-4)' }}>Loading…</div>
+        ) : screen === 'form' ? (
+          <BillForm
+            onSave={saveBill}
+            goToLedger={() => setScreen('ledger')}
+            projects={projects}
+            parties={parties}
+            bills={bills}
+            onCreateProject={addProject}
+            onGoToProjects={() => setScreen('projects')}
+            defaultProjectName={selectedProjectId ? (projects.find(p => p.id === selectedProjectId)?.name || '') : ''}
+          />
+        ) : screen === 'ledger' ? (
+          <LedgerView
+            bills={bills}
+            onDelete={deleteBill}
+            onNewBill={() => setScreen('form')}
+            projectFilter={selectedProjectId ? projects.find(p => p.id === selectedProjectId) : null}
+          />
+        ) : screen === 'books' ? (
+          <BooksScreen
+            bills={bills}
+            projects={projects}
+            selectedProject={selectedProjectId ? projects.find(p => p.id === selectedProjectId) : null}
+            onSelectProject={(id) => selectProject(id)}
+          />
+        ) : screen === 'projects' ? (
+          <ProjectsScreen
+            projects={projects}
+            bills={bills}
+            onAdd={addProject}
+            onUpdate={updateProject}
+            onDelete={deleteProject}
+            onSyncBills={syncProjectBills}
+            onSelectProject={(id) => { selectProject(id); setScreen('ledger'); }}
+            settingsConfigured={Boolean(settings.scriptUrl)}
+            onOpenSettings={() => setScreen('settings')}
+          />
+        ) : (
+          <SettingsScreen
+            settings={settings}
+            onUpdate={updateSettings}
+            projects={projects}
+            onRefresh={refreshConfigFromDrive}
+            onPushRow={pushConfigRow}
+            onSyncProject={syncProjectBills}
+          />
+        )}
+      </main>
+
+      <Footer />
+
+      <BottomNav screen={screen} setScreen={setScreen} />
+
+      {toast && (
+        <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-[60] animate-[slideup_0.3s_ease-out]">
+          <div className={`px-5 py-3 rounded-full shadow-2xl backdrop-blur-xl flex items-center gap-2 text-sm font-medium ${
+            toast.kind === 'success' ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white'
+          }`}>
+            {toast.kind === 'success' && <CheckCircle2 className="w-4 h-4" />}
+            {toast.msg}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// HEADER
+// ============================================================
+function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, settingsConfigured }) {
+  return (
+    <header
+      className="sticky top-0 z-30 backdrop-blur-xl border-b"
+      style={{ background: 'var(--header-bg)', borderColor: 'var(--header-border)' }}
+    >
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="relative flex-shrink-0">
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shadow-lg" style={{
+              background: 'linear-gradient(135deg, #E11D74 0%, #EA580C 50%, #D97706 100%)',
+            }}>
+              <Clapperboard className="w-5 h-5 sm:w-6 sm:h-6 text-white" strokeWidth={2.5} />
+            </div>
+            <div className="absolute -inset-1 rounded-xl opacity-40 blur-md -z-10" style={{
+              background: 'linear-gradient(135deg, #E11D74, #D97706)',
+            }} />
+          </div>
+          <div className="min-w-0">
+            <div
+              className="text-xl sm:text-2xl leading-none tracking-wide truncate"
+              style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.04em', color: 'var(--text)' }}
+            >
+              {BRAND.name}
+            </div>
+            <div className="text-[10px] sm:text-xs mt-0.5 truncate" style={{ color: 'var(--text-3)' }}>{BRAND.tagline}</div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
+          <button
+            onClick={onOpenSettings}
+            aria-label="Settings"
+            className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full border flex items-center justify-center transition-all hover:scale-105 active:scale-95 ${screen === 'settings' ? 'ring-2 ring-offset-1' : ''}`}
+            style={{
+              background: 'var(--surface)',
+              borderColor: screen === 'settings' ? '#E11D74' : 'var(--border)',
+              color: 'var(--text-2)',
+            }}
+          >
+            <Settings className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
+            {!settingsConfigured && (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"
+                    style={{ background: '#EA580C', borderColor: 'var(--surface)' }}
+                    title="Apps Script URL not configured" />
+            )}
+          </button>
+
+          <ThemeToggle theme={theme} onClick={toggleTheme} />
+
+          {/* Desktop nav */}
+          <nav
+            className="hidden sm:flex items-center gap-1 rounded-full p-1 border"
+            style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}
+          >
+            <NavBtn active={screen === 'form'}     onClick={() => setScreen('form')}     icon={Plus}       label="New Bill" />
+            <NavBtn active={screen === 'ledger'}   onClick={() => setScreen('ledger')}   icon={Wallet}     label="Ledger" />
+            <NavBtn active={screen === 'books'}    onClick={() => setScreen('books')}    icon={FileText}   label="Books" />
+            <NavBtn active={screen === 'projects'} onClick={() => setScreen('projects')} icon={FolderOpen} label="Projects" />
+          </nav>
+        </div>
+      </div>
+
+      <div className="h-1.5 flex">
+        <div className="flex-1" style={{ background: 'linear-gradient(90deg, #E11D74, #EA580C, #D97706, #16A34A, #2563EB, #7C3AED, #E11D74)' }} />
+      </div>
+    </header>
+  );
+}
+
+function ThemeToggle({ theme, onClick }) {
+  const isDark = theme === 'dark';
+  return (
+    <button
+      onClick={onClick}
+      role="switch"
+      aria-checked={isDark}
+      aria-label={`Switch to ${isDark ? 'light' : 'dark'} theme`}
+      className="relative flex items-center rounded-full border transition-colors duration-300 hover:scale-[1.03] active:scale-95"
+      style={{
+        width: '58px',
+        height: '30px',
+        padding: '3px',
+        background: isDark
+          ? 'linear-gradient(135deg, #1e1b4b, #312e81)'
+          : 'linear-gradient(135deg, #FEF3C7, #FED7AA)',
+        borderColor: 'var(--border)',
+      }}
+    >
+      {/* Hint icons in the track */}
+      <Sun
+        className="absolute w-3 h-3 transition-opacity duration-300"
+        style={{ left: '8px', color: '#D97706', opacity: isDark ? 0.45 : 0 }}
+        strokeWidth={2.5}
+      />
+      <Moon
+        className="absolute w-3 h-3 transition-opacity duration-300"
+        style={{ right: '8px', color: '#C4B5FD', opacity: isDark ? 0 : 0.5 }}
+        strokeWidth={2.5}
+      />
+
+      {/* Sliding thumb */}
+      <div
+        className="rounded-full flex items-center justify-center shadow-md transition-transform duration-300 ease-out"
+        style={{
+          width: '24px',
+          height: '24px',
+          transform: isDark ? 'translateX(28px)' : 'translateX(0)',
+          background: isDark
+            ? 'linear-gradient(135deg, #8B5CF6, #6366F1)'
+            : 'linear-gradient(135deg, #FBBF24, #F59E0B)',
+          boxShadow: isDark
+            ? '0 2px 8px rgba(99, 102, 241, 0.5)'
+            : '0 2px 8px rgba(251, 191, 36, 0.5)',
+        }}
+      >
+        {isDark
+          ? <Moon className="w-3 h-3 text-white" strokeWidth={2.5} />
+          : <Sun  className="w-3 h-3 text-white" strokeWidth={2.5} />}
+      </div>
+    </button>
+  );
+}
+
+function NavBtn({ active, onClick, icon: Icon, label }) {
+  return (
+    <button
+      onClick={onClick}
+      className="px-3 lg:px-4 py-2 rounded-full text-sm font-semibold flex items-center gap-2 transition-all"
+      style={active ? { background: 'linear-gradient(135deg, #EA580C, #E11D74)', color: '#fff' } : { color: 'var(--text-2)' }}
+    >
+      <Icon className="w-4 h-4" />
+      <span className="hidden lg:inline">{label}</span>
+      <span className="lg:hidden">{label.split(' ')[0]}</span>
+    </button>
+  );
+}
+
+// ============================================================
+// FOOTER
+// ============================================================
+function Footer() {
+  const year = new Date().getFullYear();
+  return (
+    <footer className="max-w-[1400px] w-full mx-auto px-4 sm:px-6 pb-24 sm:pb-6 pt-4 relative z-10">
+      <div className="flex items-center justify-center gap-1.5 text-[11px]" style={{ color: 'var(--text-4)' }}>
+        <span>© {year}</span>
+        <span
+          className="font-bold tracking-wide"
+          style={{
+            background: 'linear-gradient(135deg, #E11D74, #EA580C, #D97706)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            backgroundClip: 'text',
+          }}
+        >
+          {BRAND.copyright}
+        </span>
+        <span>by</span>
+        <span className="font-semibold" style={{ color: 'var(--text-2)' }}>{BRAND.author}</span>
+      </div>
+    </footer>
+  );
+}
+
+// ============================================================
+// PROJECT SELECTOR (global context bar)
+// ============================================================
+function ProjectSelector({ projects, selectedId, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
+  const selected = projects.find(p => p.id === selectedId);
+
+  return (
+    <div
+      className="sticky z-20 backdrop-blur-xl border-b top-[71px] sm:top-[83px]"
+      style={{
+        background: 'var(--header-bg)',
+        borderColor: 'var(--header-border)',
+      }}
+    >
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-2.5 flex items-center gap-3" ref={ref}>
+        <span className="text-[10px] font-bold tracking-[0.2em] uppercase hidden sm:inline" style={{ color: 'var(--text-3)' }}>
+          Project
+        </span>
+        <div className="relative flex-1 sm:flex-none">
+          <button
+            onClick={() => setOpen(o => !o)}
+            className="w-full sm:w-auto px-3 py-1.5 rounded-full border flex items-center gap-2 text-sm font-semibold transition"
+            style={{
+              background: 'var(--surface)',
+              borderColor: selected ? selected.color + '55' : 'var(--border)',
+              color: 'var(--text)',
+              boxShadow: 'var(--shadow-sm)',
+            }}
+          >
+            <span
+              className="w-2.5 h-2.5 rounded-full flex-shrink-0"
+              style={{ background: selected ? selected.color : 'var(--text-4)' }}
+            />
+            <span className="truncate">{selected ? selected.name : 'All Projects'}</span>
+            {selected && (
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded ml-0.5"
+                    style={{ background: selected.color + '18', color: selected.color }}>
+                {selected.prefix}
+              </span>
+            )}
+            <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} style={{ color: 'var(--text-4)' }} />
+          </button>
+
+          {open && (
+            <div
+              className="absolute z-40 left-0 sm:left-0 right-0 sm:right-auto sm:min-w-[280px] top-full mt-1 rounded-xl border overflow-hidden scale-in"
+              style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-lg)' }}
+            >
+              <button
+                onClick={() => { onChange(null); setOpen(false); }}
+                className="w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 transition"
+                style={{ background: !selectedId ? 'var(--surface-hover)' : 'transparent', color: 'var(--text)' }}
+              >
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: 'var(--text-4)' }} />
+                <span>All Projects</span>
+                <span className="ml-auto text-[10px]" style={{ color: 'var(--text-4)' }}>show everything</span>
+              </button>
+              <div className="border-t" style={{ borderColor: 'var(--border)' }} />
+              <div className="max-h-64 overflow-y-auto">
+                {projects.map(p => {
+                  const active = selectedId === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      onClick={() => { onChange(p.id); setOpen(false); }}
+                      className="w-full px-4 py-2.5 text-left text-sm flex items-center gap-2 transition"
+                      style={{ background: active ? 'var(--surface-hover)' : 'transparent', color: 'var(--text)' }}
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: p.color }} />
+                      <span className="truncate">{p.name}</span>
+                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded ml-auto flex-shrink-0"
+                            style={{ background: p.color + '18', color: p.color }}>
+                        {p.prefix}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+        {selected && (
+          <div className="hidden sm:flex items-center gap-1.5 text-[11px] ml-auto" style={{ color: 'var(--text-3)' }}>
+            <DriveStatusBadge project={selected} small />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DriveStatusBadge({ project, small }) {
+  const s = project.driveStatus;
+  const cls = small ? 'text-[10px] px-1.5 py-0.5' : 'text-[11px] px-2 py-1';
+  if (s === 'synced') {
+    return (
+      <a
+        href={project.driveFolderUrl || project.driveSheetUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`inline-flex items-center gap-1 rounded-full font-semibold ${cls}`}
+        style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#16A34A' }}
+      >
+        <Cloud className="w-3 h-3" /> Drive
+        <ExternalLink className="w-2.5 h-2.5" />
+      </a>
+    );
+  }
+  if (s === 'syncing') {
+    return (
+      <span className={`inline-flex items-center gap-1 rounded-full font-semibold ${cls}`}
+            style={{ background: 'rgba(37, 99, 235, 0.15)', color: '#2563EB' }}>
+        <Loader2 className="w-3 h-3 animate-spin" /> Syncing…
+      </span>
+    );
+  }
+  if (s === 'failed') {
+    return (
+      <span className={`inline-flex items-center gap-1 rounded-full font-semibold ${cls}`}
+            style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#DC2626' }}>
+        <CloudOff className="w-3 h-3" /> Drive failed
+      </span>
+    );
+  }
+  return (
+    <span className={`inline-flex items-center gap-1 rounded-full font-semibold ${cls}`}
+          style={{ background: 'var(--surface-3)', color: 'var(--text-3)' }}>
+      <Cloud className="w-3 h-3" /> Not synced
+    </span>
+  );
+}
+
+// ============================================================
+// BOTTOM NAV (mobile)
+// ============================================================
+function BottomNav({ screen, setScreen }) {
+  const items = [
+    { id: 'form',     icon: Plus,       label: 'New' },
+    { id: 'ledger',   icon: Wallet,     label: 'Ledger' },
+    { id: 'books',    icon: FileText,   label: 'Books' },
+    { id: 'projects', icon: FolderOpen, label: 'Projects' },
+  ];
+  return (
+    <nav
+      className="sm:hidden fixed bottom-0 left-0 right-0 z-30 backdrop-blur-xl border-t"
+      style={{ background: 'var(--nav-bg)', borderColor: 'var(--border)' }}
+    >
+      <div className="grid grid-cols-4">
+        {items.map(t => {
+          const active = screen === t.id;
+          const Icon = t.icon;
+          return (
+            <button key={t.id} onClick={() => setScreen(t.id)} className="py-3 flex flex-col items-center gap-1 relative">
+              {active && (
+                <div className="absolute top-0 left-1/4 right-1/4 h-0.5 rounded-full"
+                  style={{ background: 'linear-gradient(90deg, #E11D74, #D97706)' }} />
+              )}
+              <Icon className="w-5 h-5" strokeWidth={2.5} style={{ color: active ? 'var(--text)' : 'var(--text-4)' }} />
+              <span className="text-[11px] font-semibold" style={{ color: active ? 'var(--text)' : 'var(--text-4)' }}>{t.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+// ============================================================
+// BILL FORM
+// ============================================================
+const emptyForm = {
+  project: '',
+  date: todayISO(),
+  billNumber: '',
+  department: '',
+  category: '',
+  paidBy: '',
+  paidTo: '',
+  amount: '',
+  paymentMode: 'gpay',
+  chequeNo: '', bank: '', txnId: '', upiId: '', utr: '', cardLast4: '',
+  description: '',
+  status: 'paid',
+  approvedBy: '',
+  attachments: [],
+};
+
+function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProject, onGoToProjects, defaultProjectName }) {
+  const [form, setForm] = useState(() => ({
+    ...emptyForm,
+    project: defaultProjectName || '',
+    billNumber: defaultProjectName ? generateBillNo(defaultProjectName, projects, bills) : '',
+  }));
+  const [errors, setErrors] = useState({});
+
+  // When the global selected project changes, mirror it into the form (unless user has typed something different)
+  const lastAppliedRef = useRef(defaultProjectName || '');
+  useEffect(() => {
+    if (defaultProjectName !== lastAppliedRef.current) {
+      lastAppliedRef.current = defaultProjectName || '';
+      if (defaultProjectName) {
+        setForm(f => ({
+          ...f,
+          project: defaultProjectName,
+          billNumber: generateBillNo(defaultProjectName, projects, bills),
+        }));
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultProjectName]);
+
+  const update = (key, val) => {
+    setForm(f => ({ ...f, [key]: val }));
+    if (errors[key]) setErrors(e => ({ ...e, [key]: null }));
+  };
+
+  const handleProjectChange = (name) => {
+    setForm(f => ({
+      ...f,
+      project: name,
+      billNumber: generateBillNo(name, projects, bills),
+    }));
+    if (errors.project) setErrors(e => ({ ...e, project: null }));
+  };
+
+  const regenerateBillNo = () => {
+    update('billNumber', generateBillNo(form.project, projects, bills));
+  };
+
+  const handleFiles = (files) => {
+    const list = Array.from(files);
+    const newAtts = list.map(f => ({
+      name: f.name,
+      size: f.size,
+      type: f.type,
+      preview: f.type.startsWith('image/') ? URL.createObjectURL(f) : null,
+    }));
+    update('attachments', [...form.attachments, ...newAtts]);
+  };
+
+  const removeAttachment = (idx) => {
+    update('attachments', form.attachments.filter((_, i) => i !== idx));
+  };
+
+  const validate = () => {
+    const e = {};
+    if (!form.project.trim()) e.project = 'Required';
+    if (!form.department) e.department = 'Required';
+    if (!form.paidBy.trim()) e.paidBy = 'Required';
+    if (!form.paidTo.trim()) e.paidTo = 'Required';
+    if (!form.amount || Number(form.amount) <= 0) e.amount = 'Enter a valid amount';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const submit = () => {
+    if (!validate()) return;
+    // Ensure bill number is set (in case user cleared it)
+    const finalBillNo = form.billNumber.trim() || generateBillNo(form.project, projects, bills);
+    onSave({ ...form, billNumber: finalBillNo, amount: Number(form.amount) });
+    // Reset form but keep the project context from the global selector
+    setForm({
+      ...emptyForm,
+      project: defaultProjectName || '',
+      // Bill number will recompute on next render via projects/bills update; leave empty
+      billNumber: '',
+    });
+    setTimeout(goToLedger, 600);
+  };
+
+  const activeMode = PAYMENT_MODES.find(m => m.value === form.paymentMode);
+  // Paid By / Paid To dropdowns are scoped to the CURRENT project only
+  const partyOptionsForProject = useMemo(() => {
+    if (!form.project) return [];
+    const lowerProject = form.project.toLowerCase();
+    const names = new Set();
+    bills.forEach(b => {
+      if (b.project && b.project.toLowerCase() === lowerProject) {
+        if (b.paidBy) names.add(b.paidBy);
+        if (b.paidTo) names.add(b.paidTo);
+      }
+    });
+    return Array.from(names);
+  }, [form.project, bills]);
+  // Approved By can use the global parties list (approvers often span projects)
+  const allPartyOptions = parties.map(p => p.name);
+
+  return (
+    <div className="fade-in">
+      <ScreenHeader
+        eyebrow="Step 01"
+        title="New Bill Entry"
+        subtitle="Log a transaction to the production ledger"
+      />
+
+      {/* PROJECT SECTION */}
+      <Section title="Project Details" accent="#E11D74" icon={Film}>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Project / Production" error={errors.project} required>
+            <ComboBox
+              value={form.project}
+              onChange={handleProjectChange}
+              options={projects.map(p => p.name)}
+              placeholder="Pick a project or type to create"
+              onCreate={(name) => {
+                onCreateProject({ name });
+                handleProjectChange(name);
+              }}
+              emptyHint={projects.length === 0
+                ? <span>No projects yet — type a name or <button type="button" className="underline" onClick={onGoToProjects} style={{ color: '#E11D74' }}>open Projects</button></span>
+                : null
+              }
+            />
+          </Field>
+          <Field label="Bill Date" required>
+            <Input type="date" value={form.date} onChange={e => update('date', e.target.value)} />
+          </Field>
+          <Field label="Bill / Invoice Number">
+            <div className="relative">
+              <Input
+                value={form.billNumber}
+                onChange={e => update('billNumber', e.target.value)}
+                placeholder={form.project ? generateBillNo(form.project, projects, bills) : 'Pick a project to auto-generate'}
+                style={{ paddingRight: '44px', fontFamily: '"IBM Plex Mono", monospace' }}
+              />
+              {form.project && (
+                <button
+                  type="button"
+                  onClick={regenerateBillNo}
+                  title="Regenerate bill number"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-lg flex items-center justify-center transition hover:scale-110"
+                  style={{ color: 'var(--text-3)', background: 'var(--surface-3)' }}
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            {form.project && form.billNumber === generateBillNo(form.project, projects, bills) && (
+              <div className="text-[10px] mt-1 flex items-center gap-1" style={{ color: 'var(--text-4)' }}>
+                <Sparkle /> Auto-generated · editable
+              </div>
+            )}
+          </Field>
+          <Field label="Department" error={errors.department} required>
+            <DeptSelect value={form.department} onChange={v => update('department', v)} />
+          </Field>
+          <Field label="Sub-category / Notes" wide>
+            <Input
+              value={form.category}
+              onChange={e => update('category', e.target.value)}
+              placeholder="e.g. Lens rental, Day 14 catering, Wig procurement"
+            />
+          </Field>
+        </div>
+      </Section>
+
+      {/* TRANSACTION SECTION */}
+      <Section title="Transaction" accent="#D97706" icon={Receipt}>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Paid By" error={errors.paidBy} required>
+            <ComboBox
+              value={form.paidBy}
+              onChange={(v) => update('paidBy', v)}
+              options={partyOptionsForProject}
+              placeholder={form.project ? 'Search or add a payer' : 'Pick a project first'}
+              createLabel="party"
+              emptyHint={!form.project
+                ? <span style={{ color: 'var(--text-3)' }}>Select a project to see its payers</span>
+                : (partyOptionsForProject.length === 0
+                    ? <span style={{ color: 'var(--text-3)' }}>First bill for this project — type a name to add</span>
+                    : null)}
+            />
+          </Field>
+          <Field label="Paid To" error={errors.paidTo} required>
+            <ComboBox
+              value={form.paidTo}
+              onChange={(v) => update('paidTo', v)}
+              options={partyOptionsForProject}
+              placeholder={form.project ? 'Search or add a payee' : 'Pick a project first'}
+              createLabel="party"
+              emptyHint={!form.project
+                ? <span style={{ color: 'var(--text-3)' }}>Select a project to see its payees</span>
+                : (partyOptionsForProject.length === 0
+                    ? <span style={{ color: 'var(--text-3)' }}>First bill for this project — type a name to add</span>
+                    : null)}
+            />
+          </Field>
+          <Field label="Amount (₹)" error={errors.amount} required>
+            <div className="relative">
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 font-mono" style={{ color: 'var(--text-4)' }}>₹</span>
+              <Input
+                type="number"
+                value={form.amount}
+                onChange={e => update('amount', e.target.value)}
+                placeholder="0"
+                style={{ paddingLeft: '32px', fontFamily: '"IBM Plex Mono", monospace' }}
+              />
+            </div>
+          </Field>
+          <Field label="Attach Bill">
+            <AttachBillButton
+              attachments={form.attachments}
+              onAdd={handleFiles}
+            />
+          </Field>
+          <Field label="Status" wide>
+            <StatusSelect value={form.status} onChange={v => update('status', v)} />
+          </Field>
+        </div>
+
+        {/* Attachment thumbnails directly under the row */}
+        {form.attachments.length > 0 && (
+          <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
+            <div className="text-[10px] uppercase tracking-wider font-semibold mb-2" style={{ color: 'var(--text-3)' }}>
+              Attached ({form.attachments.length})
+            </div>
+            <div className="grid sm:grid-cols-2 gap-2">
+              {form.attachments.map((att, i) => (
+                <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg border"
+                     style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}>
+                  <div className="w-9 h-9 rounded-lg border flex items-center justify-center flex-shrink-0 overflow-hidden"
+                       style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+                    {att.preview
+                      ? <img src={att.preview} alt="" className="w-full h-full object-cover" />
+                      : att.type?.startsWith('image/')
+                        ? <ImageIcon className="w-4 h-4" style={{ color: 'var(--text-4)' }} />
+                        : <FileIcon  className="w-4 h-4" style={{ color: 'var(--text-4)' }} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs truncate" style={{ color: 'var(--text)' }}>{att.name}</div>
+                    <div className="text-[10px]" style={{ color: 'var(--text-3)' }}>{(att.size / 1024).toFixed(1)} KB</div>
+                  </div>
+                  <button
+                    onClick={() => removeAttachment(i)}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center transition flex-shrink-0"
+                    style={{ color: 'var(--text-4)' }}
+                    onMouseEnter={e => { e.currentTarget.style.color = '#EF4444'; e.currentTarget.style.background = 'rgba(239,68,68,0.1)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-4)'; e.currentTarget.style.background = 'transparent'; }}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-5">
+          <div className="text-xs uppercase tracking-wider font-semibold mb-3" style={{ color: 'var(--text-3)' }}>Payment Method</div>
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            {PAYMENT_MODES.map(mode => {
+              const Icon = mode.icon;
+              const active = form.paymentMode === mode.value;
+              return (
+                <button
+                  key={mode.value}
+                  type="button"
+                  onClick={() => update('paymentMode', mode.value)}
+                  className="relative p-3 rounded-xl border transition-all"
+                  style={
+                    active
+                      ? { background: 'linear-gradient(135deg, #E11D74, #EA580C)', borderColor: 'transparent', color: '#fff' }
+                      : { background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-2)' }
+                  }
+                >
+                  <Icon className="w-5 h-5 mx-auto mb-1.5" />
+                  <div className="text-[11px] font-semibold leading-none">{mode.label}</div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {activeMode.needs.length > 0 && (
+          <div
+            className="mt-5 p-4 rounded-xl border grid sm:grid-cols-2 gap-4 fade-in"
+            style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}
+          >
+            {activeMode.needs.includes('chequeNo') && <Field label="Cheque Number"><Input value={form.chequeNo} onChange={e => update('chequeNo', e.target.value)} placeholder="123456" /></Field>}
+            {activeMode.needs.includes('bank') &&     <Field label="Bank"><Input value={form.bank} onChange={e => update('bank', e.target.value)} placeholder="HDFC Bank" /></Field>}
+            {activeMode.needs.includes('upiId') &&    <Field label="UPI ID"><Input value={form.upiId} onChange={e => update('upiId', e.target.value)} placeholder="vendor@upi" /></Field>}
+            {activeMode.needs.includes('txnId') &&    <Field label="Transaction ID"><Input value={form.txnId} onChange={e => update('txnId', e.target.value)} placeholder="UPI / GPay reference" /></Field>}
+            {activeMode.needs.includes('utr') &&      <Field label="UTR / Reference No."><Input value={form.utr} onChange={e => update('utr', e.target.value)} placeholder="HDFCN23..." /></Field>}
+            {activeMode.needs.includes('cardLast4') && <Field label="Card last 4 digits"><Input value={form.cardLast4} onChange={e => update('cardLast4', e.target.value)} placeholder="0000" maxLength={4} /></Field>}
+          </div>
+        )}
+      </Section>
+
+      {/* DETAILS SECTION */}
+      <Section title="Details & Approval" accent="#2563EB" icon={FileText}>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Description / Purpose" wide>
+            <Textarea
+              value={form.description}
+              onChange={e => update('description', e.target.value)}
+              placeholder="Brief context for this expense…"
+              rows={3}
+            />
+          </Field>
+          <Field label="Approved By">
+            <ComboBox
+              value={form.approvedBy}
+              onChange={v => update('approvedBy', v)}
+              options={allPartyOptions}
+              placeholder="Pick an approver"
+              createLabel="party"
+            />
+          </Field>
+        </div>
+      </Section>
+
+      {/* SUBMIT */}
+      <div className="mt-8 sticky bottom-20 sm:bottom-6 z-20">
+        <button
+          onClick={submit}
+          className="w-full py-4 rounded-2xl text-white font-bold text-base shadow-2xl flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] transition-transform"
+          style={{
+            background: 'linear-gradient(135deg, #D97706 0%, #EA580C 50%, #E11D74 100%)',
+            boxShadow: '0 20px 40px -10px rgba(225, 29, 116, 0.4)',
+          }}
+        >
+          <CheckCircle2 className="w-5 h-5" />
+          Save to Ledger
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Sparkle() {
+  return (
+    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+      <path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9z" />
+    </svg>
+  );
+}
+
+// Compact attach button used inline in the Transaction grid (next to Amount)
+function AttachBillButton({ attachments, onAdd }) {
+  const inputRef = useRef(null);
+  const count = attachments?.length || 0;
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={e => { onAdd(e.target.files); e.target.value = ''; }}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        className="w-full px-4 py-3 rounded-xl border-2 border-dashed transition-all hover:opacity-90 flex items-center justify-center gap-2"
+        style={{
+          borderColor: count > 0 ? '#16A34A88' : 'var(--border-strong)',
+          color: count > 0 ? '#16A34A' : 'var(--text-2)',
+          background: count > 0 ? 'rgba(22, 163, 74, 0.06)' : 'transparent',
+        }}
+      >
+        <Paperclip className="w-4 h-4" />
+        <span className="text-sm font-semibold">
+          {count > 0 ? `${count} file${count === 1 ? '' : 's'} attached` : 'Attach Bill'}
+        </span>
+        {count > 0 && (
+          <span className="text-[10px] uppercase tracking-wider" style={{ opacity: 0.7 }}>
+            · add more
+          </span>
+        )}
+      </button>
+    </>
+  );
+}
+
+// ============================================================
+// COMBOBOX — typeable dropdown with "+ Add new" inline
+// ============================================================
+function ComboBox({ value, onChange, options, placeholder, onCreate, createLabel = '', emptyHint = null }) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState(value || '');
+  const [highlight, setHighlight] = useState(0);
+  const containerRef = useRef(null);
+  const inputRef = useRef(null);
+
+  useEffect(() => { setSearch(value || ''); }, [value]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        setOpen(false);
+        setSearch(value || ''); // revert to last committed value
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [value]);
+
+  const lower = search.trim().toLowerCase();
+  const filtered = lower
+    ? options.filter(o => o.toLowerCase().includes(lower))
+    : options;
+  const exact = options.some(o => o.toLowerCase() === lower);
+  const canCreate = lower.length > 0 && !exact && Boolean(onCreate || true);
+
+  const handleSelect = (name) => {
+    setSearch(name);
+    onChange(name);
+    setOpen(false);
+    setHighlight(0);
+  };
+
+  const handleCreate = () => {
+    const name = search.trim();
+    if (!name) return;
+    if (onCreate) onCreate(name);
+    else onChange(name);
+    setOpen(false);
+    setHighlight(0);
+  };
+
+  const handleKey = (e) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlight(h => Math.min(h + 1, filtered.length - (canCreate ? 0 : 1)));
+      setOpen(true);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlight(h => Math.max(h - 1, 0));
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (highlight < filtered.length) {
+        handleSelect(filtered[highlight]);
+      } else if (canCreate) {
+        handleCreate();
+      }
+    } else if (e.key === 'Escape') {
+      setOpen(false);
+      setSearch(value || '');
+    }
+  };
+
+  return (
+    <div ref={containerRef} className="relative">
+      <input
+        ref={inputRef}
+        type="text"
+        value={search}
+        onChange={e => { setSearch(e.target.value); setOpen(true); setHighlight(0); }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={handleKey}
+        placeholder={placeholder}
+        autoComplete="off"
+        className={inputBaseClasses}
+        style={inputStyle}
+      />
+      {open && (filtered.length > 0 || canCreate || emptyHint) && (
+        <div
+          className="absolute z-40 left-0 right-0 top-full mt-1 rounded-xl border overflow-hidden scale-in"
+          style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-lg)' }}
+        >
+          <div className="max-h-64 overflow-y-auto">
+            {filtered.length > 0 ? (
+              filtered.map((o, i) => {
+                const isActive = i === highlight;
+                return (
+                  <button
+                    key={o}
+                    type="button"
+                    onMouseEnter={() => setHighlight(i)}
+                    onClick={() => handleSelect(o)}
+                    className="w-full px-4 py-2.5 text-left text-sm flex items-center gap-2"
+                    style={{
+                      background: isActive ? 'var(--surface-hover)' : 'transparent',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    <span className="w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-bold flex-shrink-0"
+                      style={{ background: 'var(--surface-3)', color: 'var(--text-3)' }}>
+                      {o.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="truncate">{o}</span>
+                  </button>
+                );
+              })
+            ) : emptyHint ? (
+              <div className="px-4 py-3 text-xs" style={{ color: 'var(--text-3)' }}>{emptyHint}</div>
+            ) : null}
+          </div>
+          {canCreate && (
+            <button
+              type="button"
+              onClick={handleCreate}
+              className="w-full px-4 py-3 text-left text-sm flex items-center gap-2 border-t font-semibold"
+              style={{ borderColor: 'var(--border)', color: '#E11D74', background: 'var(--surface-2)' }}
+            >
+              <Plus className="w-4 h-4" />
+              Add "<span className="truncate max-w-[180px] inline-block align-bottom">{search.trim()}</span>" as new {createLabel}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// SECTION + FIELD + INPUTS
+// ============================================================
+function Section({ title, accent, icon: Icon, children, action }) {
+  return (
+    <section className="mt-6 sm:mt-8 fade-in">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: accent + '18', color: accent }}>
+          <Icon className="w-4 h-4" />
+        </div>
+        <h3 className="text-base sm:text-lg font-bold tracking-tight" style={{ color: 'var(--text)' }}>{title}</h3>
+        <div className="flex-1 h-px" style={{ background: `linear-gradient(90deg, ${accent}55, transparent)` }} />
+        {action}
+      </div>
+      <div className="p-4 sm:p-6 rounded-2xl border" style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function ScreenHeader({ eyebrow, title, subtitle, action }) {
+  return (
+    <div className="pt-2 pb-4 flex items-end justify-between gap-4 flex-wrap">
+      <div>
+        <div className="text-[10px] font-bold tracking-[0.2em] uppercase" style={{ color: 'var(--text-3)' }}>{eyebrow}</div>
+        <h1 className="text-3xl sm:text-5xl mt-1 leading-none"
+            style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.01em', color: 'var(--text)' }}>
+          {title}
+        </h1>
+        {subtitle && <div className="text-sm mt-1.5" style={{ color: 'var(--text-3)' }}>{subtitle}</div>}
+      </div>
+      {action}
+    </div>
+  );
+}
+
+function Field({ label, children, error, required, wide }) {
+  return (
+    <div className={wide ? 'sm:col-span-2' : ''}>
+      <label className="text-[11px] font-semibold tracking-wider uppercase mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-3)' }}>
+        {label}
+        {required && <span style={{ color: '#EC4899' }}>*</span>}
+      </label>
+      {children}
+      {error && <div className="text-xs mt-1" style={{ color: '#EF4444' }}>{error}</div>}
+    </div>
+  );
+}
+
+const inputBaseClasses = "w-full px-4 py-3 rounded-xl border focus:outline-none transition-all";
+const inputStyle = {
+  background: 'var(--surface-2)',
+  borderColor: 'var(--border)',
+  color: 'var(--text)',
+};
+
+function Input(props) {
+  const { className = '', style = {}, ...rest } = props;
+  return (
+    <input
+      {...rest}
+      className={inputBaseClasses + ' ' + className}
+      style={{ ...inputStyle, ...style }}
+      onFocus={e => { e.target.style.borderColor = 'rgba(236, 72, 153, 0.6)'; }}
+      onBlur={e => { e.target.style.borderColor = 'var(--border)'; }}
+    />
+  );
+}
+function Textarea(props) {
+  const { className = '', style = {}, ...rest } = props;
+  return (
+    <textarea
+      {...rest}
+      className={inputBaseClasses + ' resize-none ' + className}
+      style={{ ...inputStyle, ...style }}
+      onFocus={e => { e.target.style.borderColor = 'rgba(236, 72, 153, 0.6)'; }}
+      onBlur={e => { e.target.style.borderColor = 'var(--border)'; }}
+    />
+  );
+}
+
+function DeptSelect({ value, onChange }) {
+  return (
+    <select
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      className={inputBaseClasses + ' appearance-none cursor-pointer'}
+      style={{
+        ...inputStyle,
+        backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: 'right 16px center',
+        paddingRight: '40px',
+      }}
+    >
+      <option value="">Select department…</option>
+      {DEPARTMENTS.map(d => (
+        <option key={d.name} value={d.name}>{d.emoji} {d.name}</option>
+      ))}
+    </select>
+  );
+}
+
+function StatusSelect({ value, onChange }) {
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {STATUSES.map(s => {
+        const active = value === s.value;
+        const Icon = s.icon;
+        return (
+          <button
+            key={s.value}
+            type="button"
+            onClick={() => onChange(s.value)}
+            className="py-3 px-3 rounded-xl border text-xs font-semibold flex flex-col items-center gap-1 transition-all"
+            style={
+              active
+                ? { background: s.color + '18', borderColor: s.color + '88', color: s.color }
+                : { background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-3)' }
+            }
+          >
+            <Icon className="w-4 h-4" />
+            {s.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================================
+// LEDGER VIEW
+// ============================================================
+function LedgerView({ bills, onDelete, onNewBill, projectFilter }) {
+  const [view, setView] = useState('department');
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState(null);
+
+  // First, narrow bills to the active project if there is one
+  const scoped = useMemo(() => {
+    if (!projectFilter) return bills;
+    return bills.filter(b => b.project && b.project.toLowerCase() === projectFilter.name.toLowerCase());
+  }, [bills, projectFilter]);
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return scoped;
+    const q = query.toLowerCase();
+    return scoped.filter(b =>
+      [b.project, b.department, b.paidBy, b.paidTo, b.billNumber, b.description, b.category]
+        .filter(Boolean).join(' ').toLowerCase().includes(q)
+    );
+  }, [scoped, query]);
+
+  const totals = useMemo(() => {
+    const total   = filtered.reduce((s, b) => s + Number(b.amount || 0), 0);
+    const paid    = filtered.filter(b => b.status === 'paid').reduce((s, b) => s + Number(b.amount || 0), 0);
+    const pending = filtered.filter(b => b.status === 'pending').reduce((s, b) => s + Number(b.amount || 0), 0);
+    const depts   = new Set(filtered.map(b => b.department)).size;
+    return { total, paid, pending, count: filtered.length, depts };
+  }, [filtered]);
+
+  const byDepartment = useMemo(() => {
+    const map = new Map();
+    filtered.forEach(b => {
+      if (!map.has(b.department)) map.set(b.department, []);
+      map.get(b.department).push(b);
+    });
+    return Array.from(map.entries())
+      .map(([dept, list]) => ({
+        key: dept, name: dept, list,
+        total: list.reduce((s, b) => s + Number(b.amount || 0), 0),
+        count: list.length,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [filtered]);
+
+  const byIndividual = useMemo(() => {
+    const map = new Map();
+    filtered.forEach(b => {
+      const add = (name, type) => {
+        if (!name) return;
+        if (!map.has(name)) map.set(name, { name, paidAmount: 0, receivedAmount: 0, list: [] });
+        const entry = map.get(name);
+        if (type === 'payer') entry.paidAmount += Number(b.amount || 0);
+        if (type === 'payee') entry.receivedAmount += Number(b.amount || 0);
+        entry.list.push({ ...b, _role: type });
+      };
+      add(b.paidBy, 'payer');
+      add(b.paidTo, 'payee');
+    });
+    return Array.from(map.values())
+      .map(p => ({ ...p, key: p.name, total: p.paidAmount + p.receivedAmount, count: p.list.length }))
+      .sort((a, b) => b.total - a.total);
+  }, [filtered]);
+
+  const groups = view === 'department' ? byDepartment : byIndividual;
+
+  return (
+    <div className="fade-in">
+      <ScreenHeader
+        eyebrow={projectFilter ? `Ledger · ${projectFilter.prefix}` : 'Ledger'}
+        title={projectFilter ? projectFilter.name : 'Production Books'}
+        subtitle={scoped.length === 0
+          ? (projectFilter ? `No bills logged for ${projectFilter.name} yet` : 'No entries yet — start by adding your first bill')
+          : `${scoped.length} bill${scoped.length === 1 ? '' : 's'}${projectFilter ? ` in this project` : ' on file'}`}
+      />
+
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <StatCard label="Total"   value={formatCurrency(totals.total)}   accent="#E11D74" icon={TrendingUp} />
+        <StatCard label="Paid"    value={formatCurrency(totals.paid)}    accent="#16A34A" icon={CheckCircle2} />
+        <StatCard label="Pending" value={formatCurrency(totals.pending)} accent="#CA8A04" icon={Clock} />
+        <StatCard label="Bills"   value={totals.count.toString()}        accent="#2563EB" icon={Hash} sub={`${totals.depts} depts`} />
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-3 mb-5">
+        <div className="relative flex-1">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: 'var(--text-4)' }} />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search project, vendor, department…"
+            className="w-full pl-11 pr-4 py-3 rounded-xl border focus:outline-none transition"
+            style={{ background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' }}
+          />
+        </div>
+        <div className="flex border rounded-xl p-1 gap-1" style={{ background: 'var(--surface-3)', borderColor: 'var(--border)' }}>
+          <ViewToggle active={view === 'department'} onClick={() => { setView('department'); setSelected(null); }} icon={Briefcase} label="Department" />
+          <ViewToggle active={view === 'individual'} onClick={() => { setView('individual'); setSelected(null); }} icon={User}      label="Individual" />
+        </div>
+      </div>
+
+      {scoped.length === 0 ? (
+        <EmptyState onNewBill={onNewBill} />
+      ) : filtered.length === 0 ? (
+        <div className="text-center py-16" style={{ color: 'var(--text-4)' }}>
+          <Search className="w-10 h-10 mx-auto mb-3 opacity-50" />
+          <div>No matches for "{query}"</div>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {groups.map(g => (
+            <LedgerCard
+              key={g.key}
+              group={g}
+              view={view}
+              expanded={selected === g.key}
+              onToggle={() => setSelected(selected === g.key ? null : g.key)}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ label, value, accent, icon: Icon, sub }) {
+  return (
+    <div className="relative p-4 rounded-2xl border overflow-hidden"
+         style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+      <div className="absolute top-0 right-0 w-24 h-24 rounded-full blur-2xl opacity-20" style={{ background: accent }} />
+      <div className="relative">
+        <div className="flex items-center justify-between mb-1.5">
+          <div className="text-[10px] uppercase tracking-wider font-semibold" style={{ color: 'var(--text-3)' }}>{label}</div>
+          <Icon className="w-3.5 h-3.5" style={{ color: accent }} />
+        </div>
+        <div className="text-lg sm:text-2xl font-bold leading-tight truncate" style={{ fontFamily: '"IBM Plex Mono", monospace', color: 'var(--text)' }}>{value}</div>
+        {sub && <div className="text-[11px] mt-0.5" style={{ color: 'var(--text-3)' }}>{sub}</div>}
+      </div>
+    </div>
+  );
+}
+
+function ViewToggle({ active, onClick, icon: Icon, label }) {
+  return (
+    <button onClick={onClick} className="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all"
+      style={active ? { background: 'var(--surface)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' } : { color: 'var(--text-3)' }}>
+      <Icon className="w-3.5 h-3.5" />
+      <span className="hidden sm:inline">{label}</span>
+    </button>
+  );
+}
+
+function EmptyState({ onNewBill }) {
+  return (
+    <div className="text-center py-16 px-6 rounded-2xl border"
+         style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+      <div className="text-6xl mb-4">🎬</div>
+      <div className="text-xl font-bold mb-2" style={{ color: 'var(--text)' }}>Lights, camera… ledger</div>
+      <div className="mb-6 text-sm max-w-sm mx-auto" style={{ color: 'var(--text-3)' }}>
+        Your production books are empty. Log your first bill to see it break down by department and by person.
+      </div>
+      <button onClick={onNewBill}
+        className="px-6 py-3 rounded-full text-white font-bold text-sm inline-flex items-center gap-2 shadow-lg"
+        style={{ background: 'linear-gradient(135deg, #D97706, #E11D74)' }}>
+        <Plus className="w-4 h-4" />
+        Add first bill
+      </button>
+    </div>
+  );
+}
+
+// ============================================================
+// LEDGER CARDS + BILL ROW
+// ============================================================
+function LedgerCard({ group, view, expanded, onToggle, onDelete }) {
+  const dept = view === 'department' ? getDept(group.name) : null;
+  const color = dept ? dept.color : '#7C3AED';
+  const emoji = dept ? dept.emoji : '👤';
+
+  return (
+    <div className="rounded-2xl border overflow-hidden"
+         style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+      <button onClick={onToggle} className="w-full p-4 sm:p-5 flex items-center gap-4 transition text-left hover:opacity-90">
+        <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0 border"
+             style={{ background: color + '14', borderColor: color + '44' }}>
+          {emoji}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-bold truncate text-base" style={{ color: 'var(--text)' }}>{group.name}</div>
+          <div className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
+            {view === 'individual' ? (
+              <span>
+                <span className="font-semibold" style={{ color: 'var(--money-paid)' }}>Paid {formatCurrency(group.paidAmount)}</span>
+                {group.receivedAmount > 0 && (
+                  <> · <span className="font-semibold" style={{ color: 'var(--money-recv)' }}>Received {formatCurrency(group.receivedAmount)}</span></>
+                )}
+              </span>
+            ) : (
+              `${group.count} transaction${group.count === 1 ? '' : 's'}`
+            )}
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className="text-base sm:text-xl font-bold" style={{ fontFamily: '"IBM Plex Mono", monospace', color }}>
+            {formatCurrency(group.total)}
+          </div>
+          <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-4)' }}>{group.count} bill{group.count === 1 ? '' : 's'}</div>
+        </div>
+        <ChevronDown className={`w-5 h-5 transition-transform ${expanded ? 'rotate-180' : ''}`} style={{ color: 'var(--text-4)' }} />
+      </button>
+
+      {expanded && (
+        <div className="border-t fade-in" style={{ borderColor: 'var(--border)', background: 'var(--surface-2)' }}>
+          {group.list.map(b => (
+            <BillRow key={b.id} bill={b} role={b._role} viewMode={view} onDelete={onDelete} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BillRow({ bill, role, viewMode, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const dept = getDept(bill.department);
+  const status = STATUSES.find(s => s.value === bill.status) || STATUSES[0];
+  const mode = PAYMENT_MODES.find(m => m.value === bill.paymentMode);
+
+  return (
+    <div className="border-b last:border-b-0" style={{ borderColor: 'var(--border-soft)' }}>
+      <div className="p-4 sm:p-5 flex items-start gap-3">
+        <div className="w-1 self-stretch rounded-full flex-shrink-0" style={{ background: dept.color }} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-semibold truncate" style={{ color: 'var(--text)' }}>{bill.paidBy}</span>
+                <ArrowUpRight className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--text-4)' }} />
+                <span className="font-semibold truncate" style={{ color: 'var(--text)' }}>{bill.paidTo}</span>
+              </div>
+              <div className="text-xs mt-1 flex items-center gap-2 flex-wrap" style={{ color: 'var(--text-3)' }}>
+                <span>{formatDate(bill.date)}</span>
+                <span style={{ color: 'var(--text-divider)' }}>·</span>
+                <span>{bill.project}</span>
+                {bill.billNumber && (
+                  <>
+                    <span style={{ color: 'var(--text-divider)' }}>·</span>
+                    <span className="font-mono">#{bill.billNumber}</span>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="text-right flex-shrink-0">
+              <div className="font-bold" style={{ fontFamily: '"IBM Plex Mono", monospace', color: 'var(--text)' }}>
+                {formatCurrency(bill.amount)}
+              </div>
+              <div className="flex items-center gap-1 justify-end mt-0.5">
+                <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full"
+                      style={{ background: status.color + '22', color: status.color }}>
+                  {status.label}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {viewMode === 'individual' && role && (
+            <div className="text-[10px] uppercase tracking-wider mt-1.5 inline-block px-2 py-0.5 rounded font-bold"
+                 style={{
+                   background: role === 'payer' ? 'var(--badge-sent-bg)' : 'var(--badge-recv-bg)',
+                   color: role === 'payer' ? 'var(--badge-sent-text)' : 'var(--badge-recv-text)',
+                 }}>
+              {role === 'payer' ? 'Sent payment' : 'Received payment'}
+            </div>
+          )}
+
+          <div className="mt-2 flex items-center gap-3 text-[11px] flex-wrap" style={{ color: 'var(--text-3)' }}>
+            <span className="inline-flex items-center gap-1">
+              <span>{dept.emoji}</span> {dept.name}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              {mode && <mode.icon className="w-3 h-3" />} {mode?.label}
+            </span>
+            {bill.attachments?.length > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <Paperclip className="w-3 h-3" /> {bill.attachments.length}
+              </span>
+            )}
+            <button onClick={() => setOpen(!open)} className="ml-auto text-[11px] font-semibold transition" style={{ color: 'var(--text-3)' }}
+                    onMouseEnter={e => e.currentTarget.style.color = 'var(--text)'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'var(--text-3)'}>
+              {open ? 'Hide' : 'Details'}
+            </button>
+          </div>
+
+          {open && (
+            <div className="mt-3 p-3 rounded-lg border text-xs space-y-1.5 fade-in"
+                 style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+              {bill.category    && <DetailRow k="Sub-category" v={bill.category} />}
+              {bill.description && <DetailRow k="Description"  v={bill.description} />}
+              {bill.approvedBy  && <DetailRow k="Approved by"  v={bill.approvedBy} />}
+              {bill.chequeNo    && <DetailRow k="Cheque #"     v={bill.chequeNo} />}
+              {bill.bank        && <DetailRow k="Bank"         v={bill.bank} />}
+              {bill.upiId       && <DetailRow k="UPI ID"       v={bill.upiId} />}
+              {bill.txnId       && <DetailRow k="Txn ID"       v={bill.txnId} mono />}
+              {bill.utr         && <DetailRow k="UTR"          v={bill.utr} mono />}
+              {bill.cardLast4   && <DetailRow k="Card"         v={'•••• ' + bill.cardLast4} mono />}
+
+              {bill.attachments?.length > 0 && (
+                <div className="pt-2 mt-2 border-t" style={{ borderColor: 'var(--border)' }}>
+                  <div className="uppercase tracking-wider text-[10px] font-bold mb-2 flex items-center justify-between" style={{ color: 'var(--text-3)' }}>
+                    <span>Attachments ({bill.attachments.length})</span>
+                    {bill.attachments.every(a => a.driveUrl) && (
+                      <span className="inline-flex items-center gap-1" style={{ color: '#16A34A' }}>
+                        <Cloud className="w-3 h-3" /> on Drive
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {bill.attachments.map((att, i) => {
+                      const inner = (
+                        <>
+                          <div className="w-8 h-8 rounded flex items-center justify-center overflow-hidden flex-shrink-0 border"
+                               style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+                            {att.preview
+                              ? <img src={att.preview} className="w-full h-full object-cover" alt="" />
+                              : att.type?.startsWith('image/')
+                                ? <ImageIcon className="w-3.5 h-3.5" style={{ color: 'var(--text-4)' }} />
+                                : <FileIcon className="w-3.5 h-3.5" style={{ color: 'var(--text-4)' }} />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="truncate text-[11px] font-semibold" style={{ color: 'var(--text-2)' }}>{att.name}</div>
+                            {att.driveUrl && (
+                              <div className="text-[10px] flex items-center gap-1" style={{ color: '#16A34A' }}>
+                                <ExternalLink className="w-2.5 h-2.5" /> Open in Drive
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      );
+                      return att.driveUrl ? (
+                        <a key={i} href={att.driveUrl} target="_blank" rel="noopener noreferrer"
+                           className="flex items-center gap-2 p-2 rounded border transition hover:opacity-90"
+                           style={{ background: 'var(--surface-2)', borderColor: 'var(--border)', textDecoration: 'none' }}
+                           onClick={e => e.stopPropagation()}>
+                          {inner}
+                        </a>
+                      ) : (
+                        <div key={i} className="flex items-center gap-2 p-2 rounded border"
+                             style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}>
+                          {inner}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 mt-2 border-t flex justify-end" style={{ borderColor: 'var(--border)' }}>
+                <button onClick={() => { if (window.confirm('Remove this bill from the ledger?')) onDelete(bill.id); }}
+                        className="text-[11px] font-semibold inline-flex items-center gap-1" style={{ color: '#EF4444' }}>
+                  <Trash2 className="w-3 h-3" /> Delete bill
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailRow({ k, v, mono }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="w-24 flex-shrink-0" style={{ color: 'var(--text-3)' }}>{k}</span>
+      <span className={mono ? 'font-mono' : ''} style={{ color: 'var(--text-2)' }}>{v}</span>
+    </div>
+  );
+}
+
+// Local money formatter (no currency symbol — caller decides)
+function fmtMoney(n) {
+  return Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 });
+}
+
+// ============================================================
+// BOOKS SCREEN — accounts-style ledger journal with running balance
+// ============================================================
+function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
+  const filteredBills = useMemo(() => {
+    if (!selectedProject) return bills;
+    return bills.filter(b => b.project && b.project.toLowerCase() === selectedProject.name.toLowerCase());
+  }, [bills, selectedProject]);
+
+  // Sort chronologically: date asc, then createdAt asc for same-date stability
+  const sorted = useMemo(() => {
+    return [...filteredBills].sort((a, b) => {
+      const da = new Date(a.date || a.createdAt || 0).getTime();
+      const db = new Date(b.date || b.createdAt || 0).getTime();
+      if (da !== db) return da - db;
+      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+    });
+  }, [filteredBills]);
+
+  // Build journal rows with running balance. Treat every bill as a Debit (expense).
+  // Credit column reserved for future use (refunds / income postings).
+  const rows = useMemo(() => {
+    let balance = 0;
+    return sorted.map((bill, i) => {
+      const debit  = Number(bill.amount) || 0;
+      const credit = 0;
+      balance += debit - credit;
+      const narrativeBits = [];
+      if (bill.department) narrativeBits.push(bill.department);
+      if (bill.category)   narrativeBits.push(bill.category);
+      if (bill.paidBy)     narrativeBits.push(`paid by ${bill.paidBy}`);
+      if (bill.description) narrativeBits.push(bill.description);
+      return {
+        index: i + 1,
+        date: bill.date,
+        project: bill.project || '—',
+        name: bill.paidTo || '—',
+        narrative: narrativeBits.join(' · ') || '—',
+        journalId: bill.billNumber || (bill.id ? String(bill.id).slice(-8) : ''),
+        debit,
+        credit,
+        balance,
+        bill,
+      };
+    });
+  }, [sorted]);
+
+  const totals = useMemo(() => {
+    let td = 0, tc = 0;
+    rows.forEach(r => { td += r.debit; tc += r.credit; });
+    return { debit: td, credit: tc, closing: td - tc };
+  }, [rows]);
+
+  // For mobile, switch to a card list
+  return (
+    <div>
+      <div className="mb-6">
+        <div className="text-[10px] font-bold tracking-[0.2em] uppercase" style={{ color: 'var(--text-3)' }}>Books</div>
+        <h1 className="text-3xl sm:text-5xl mb-1" style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.01em', color: 'var(--text)' }}>
+          Ledger
+        </h1>
+        <p style={{ color: 'var(--text-3)' }} className="text-sm">
+          Journal entries with running balance · {selectedProject ? selectedProject.name : 'All projects'}
+        </p>
+      </div>
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <StatCard label="Total Debit"  value={`₹${fmtMoney(totals.debit)}`}  accent="#EA580C" />
+        <StatCard label="Total Credit" value={totals.credit > 0 ? `₹${fmtMoney(totals.credit)}` : '—'} accent="#16A34A" />
+        <StatCard label="Closing Bal." value={`₹${fmtMoney(totals.closing)}`} accent="#E11D74" />
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="py-16 text-center rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--surface)' }}>
+          <FileText className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--text-4)' }} />
+          <p className="text-sm font-semibold mb-1" style={{ color: 'var(--text-2)' }}>No entries yet</p>
+          <p className="text-xs" style={{ color: 'var(--text-3)' }}>
+            {selectedProject ? 'This project has no bills yet.' : 'Submit a bill from "New Bill" to see it here.'}
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* DESKTOP TABLE */}
+          <div className="hidden sm:block rounded-2xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm" style={{ borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface-3)' }}>
+                    <Th>#</Th>
+                    <Th>Date</Th>
+                    <Th>Project</Th>
+                    <Th>Name</Th>
+                    <Th>Narrative</Th>
+                    <Th>JournalID</Th>
+                    <Th align="right">Debit</Th>
+                    <Th align="right">Credit</Th>
+                    <Th align="right">Balance</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, idx) => (
+                    <tr
+                      key={r.bill.id}
+                      style={{
+                        background: idx % 2 ? 'var(--surface)' : 'transparent',
+                        borderTop: '1px solid var(--border-soft)',
+                      }}
+                    >
+                      <Td mono>{r.index}</Td>
+                      <Td>{r.date}</Td>
+                      <Td>
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full" style={{ background: projects.find(p => p.name === r.project)?.color || '#94a3b8' }} />
+                          {r.project}
+                        </span>
+                      </Td>
+                      <Td>{r.name}</Td>
+                      <Td truncate>{r.narrative}</Td>
+                      <Td mono>
+                        <span className="px-1.5 py-0.5 rounded text-[11px]"
+                              style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }}>
+                          {r.journalId}
+                        </span>
+                      </Td>
+                      <Td align="right" mono>₹{fmtMoney(r.debit)}</Td>
+                      <Td align="right" mono>{r.credit > 0 ? `₹${fmtMoney(r.credit)}` : '—'}</Td>
+                      <Td align="right" mono strong>₹{fmtMoney(r.balance)}</Td>
+                    </tr>
+                  ))}
+                  <tr style={{ background: 'var(--surface-3)', fontWeight: 700 }}>
+                    <Td colSpan={6}>Totals</Td>
+                    <Td align="right" mono strong>₹{fmtMoney(totals.debit)}</Td>
+                    <Td align="right" mono strong>{totals.credit > 0 ? `₹${fmtMoney(totals.credit)}` : '—'}</Td>
+                    <Td align="right" mono strong>₹{fmtMoney(totals.closing)}</Td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* MOBILE CARDS */}
+          <div className="sm:hidden space-y-2">
+            {rows.map(r => (
+              <div key={r.bill.id} className="rounded-xl border p-3" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-3)' }}>
+                      #{r.index}
+                    </span>
+                    <span className="text-xs" style={{ color: 'var(--text-3)' }}>{r.date}</span>
+                  </div>
+                  <span className="font-mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }}>
+                    {r.journalId}
+                  </span>
+                </div>
+                <div className="text-sm font-semibold mb-0.5" style={{ color: 'var(--text)' }}>{r.name}</div>
+                <div className="text-xs mb-2 truncate" style={{ color: 'var(--text-3)' }}>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ background: projects.find(p => p.name === r.project)?.color || '#94a3b8' }} />
+                    {r.project}
+                  </span>
+                  {r.narrative && r.narrative !== '—' && <> · {r.narrative}</>}
+                </div>
+                <div className="grid grid-cols-3 gap-2 pt-2 border-t" style={{ borderColor: 'var(--border-soft)' }}>
+                  <div>
+                    <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Debit</div>
+                    <div className="font-mono text-sm" style={{ color: 'var(--text)' }}>₹{fmtMoney(r.debit)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Credit</div>
+                    <div className="font-mono text-sm" style={{ color: 'var(--text)' }}>{r.credit > 0 ? `₹${fmtMoney(r.credit)}` : '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Balance</div>
+                    <div className="font-mono text-sm font-bold" style={{ color: '#E11D74' }}>₹{fmtMoney(r.balance)}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div className="rounded-xl border-2 p-3 mt-3" style={{ borderColor: '#E11D74', background: 'var(--surface)' }}>
+              <div className="text-[10px] uppercase tracking-[0.2em] font-bold mb-2" style={{ color: 'var(--text-3)' }}>Totals</div>
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Debit</div>
+                  <div className="font-mono text-sm font-bold" style={{ color: 'var(--text)' }}>₹{fmtMoney(totals.debit)}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Credit</div>
+                  <div className="font-mono text-sm font-bold" style={{ color: 'var(--text)' }}>{totals.credit > 0 ? `₹${fmtMoney(totals.credit)}` : '—'}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Closing</div>
+                  <div className="font-mono text-sm font-bold" style={{ color: '#E11D74' }}>₹{fmtMoney(totals.closing)}</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Small table cell helpers used only by BooksScreen
+function Th({ children, align = 'left' }) {
+  return (
+    <th
+      className="px-3 py-2.5 text-[10px] uppercase tracking-[0.15em] font-bold whitespace-nowrap"
+      style={{ color: 'var(--text-3)', textAlign: align }}
+    >
+      {children}
+    </th>
+  );
+}
+function Td({ children, align = 'left', mono, strong, truncate, colSpan }) {
+  return (
+    <td
+      colSpan={colSpan}
+      className={`px-3 py-2.5 ${mono ? 'font-mono' : ''} ${strong ? 'font-bold' : ''} ${truncate ? 'max-w-[300px] truncate' : ''}`}
+      style={{ color: 'var(--text)', textAlign: align, fontSize: '13px' }}
+    >
+      {children}
+    </td>
+  );
+}
+
+// ============================================================
+// PROJECTS SCREEN (master)
+// ============================================================
+function ProjectsScreen({ projects, bills, onAdd, onUpdate, onDelete, onSyncBills, onSelectProject, settingsConfigured, onOpenSettings }) {
+  const [editing, setEditing] = useState(null); // null | 'new' | project obj
+
+  const stats = useMemo(() => {
+    const map = new Map();
+    bills.forEach(b => {
+      if (!b.project) return;
+      const key = b.project.toLowerCase();
+      if (!map.has(key)) map.set(key, { count: 0, total: 0, lastDate: null });
+      const e = map.get(key);
+      e.count++;
+      e.total += Number(b.amount || 0);
+      if (!e.lastDate || (b.date && b.date > e.lastDate)) e.lastDate = b.date;
+    });
+    return map;
+  }, [bills]);
+
+  return (
+    <div className="fade-in">
+      <ScreenHeader
+        eyebrow="Master"
+        title="Projects"
+        subtitle={projects.length === 0
+          ? 'Build your roster of productions. Bills auto-link by project name.'
+          : `${projects.length} production${projects.length === 1 ? '' : 's'} on file`}
+        action={
+          <button
+            onClick={() => setEditing('new')}
+            className="px-4 py-2.5 rounded-full text-white font-bold text-sm inline-flex items-center gap-2 shadow-md"
+            style={{ background: 'linear-gradient(135deg, #D97706, #E11D74)' }}
+          >
+            <Plus className="w-4 h-4" />
+            New Project
+          </button>
+        }
+      />
+
+      {!settingsConfigured && projects.length > 0 && (
+        <button
+          onClick={onOpenSettings}
+          className="w-full mb-4 p-3 rounded-xl border-2 border-dashed flex items-center gap-3 text-left transition hover:opacity-90"
+          style={{ borderColor: '#EA580C66', background: 'rgba(234, 88, 12, 0.06)' }}
+        >
+          <Cloud className="w-5 h-5 flex-shrink-0" style={{ color: '#EA580C' }} />
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
+              Set up Drive sync to push bills to Google Sheets
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: 'var(--text-3)' }}>
+              Configure your Apps Script URL in Settings — takes one minute
+            </div>
+          </div>
+          <Settings className="w-4 h-4 flex-shrink-0" style={{ color: 'var(--text-3)' }} />
+        </button>
+      )}
+
+      {projects.length === 0 ? (
+        <div className="text-center py-16 px-6 rounded-2xl border"
+             style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }}>
+          <div className="text-6xl mb-4">🎞️</div>
+          <div className="text-xl font-bold mb-2" style={{ color: 'var(--text)' }}>No productions yet</div>
+          <div className="mb-6 text-sm max-w-sm mx-auto" style={{ color: 'var(--text-3)' }}>
+            Add a project to organise bills cleanly. Each project gets a unique prefix for auto-numbered bills (like UF-0001).
+          </div>
+          <button onClick={() => setEditing('new')}
+            className="px-6 py-3 rounded-full text-white font-bold text-sm inline-flex items-center gap-2 shadow-lg"
+            style={{ background: 'linear-gradient(135deg, #D97706, #E11D74)' }}>
+            <Plus className="w-4 h-4" />
+            Create first project
+          </button>
+        </div>
+      ) : (
+        <div className="grid sm:grid-cols-2 gap-3">
+          {projects.map(p => (
+            <ProjectCard
+              key={p.id}
+              project={p}
+              stats={stats.get(p.name.toLowerCase()) || { count: 0, total: 0, lastDate: null }}
+              onEdit={() => setEditing(p)}
+              onSyncBills={() => onSyncBills(p.id)}
+              onView={() => onSelectProject(p.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {editing && (
+        <ProjectModal
+          project={editing === 'new' ? null : editing}
+          existingNames={projects.filter(p => editing === 'new' || p.id !== editing.id).map(p => p.name.toLowerCase())}
+          onClose={() => setEditing(null)}
+          onSave={(data) => {
+            if (editing === 'new') onAdd(data);
+            else onUpdate(editing.id, data);
+            setEditing(null);
+          }}
+          onDelete={editing !== 'new' ? () => {
+            if (window.confirm(`Delete project "${editing.name}"?\n\nExisting bills under this project will keep their data — only the master entry is removed.`)) {
+              onDelete(editing.id);
+              setEditing(null);
+            }
+          } : null}
+        />
+      )}
+    </div>
+  );
+}
+
+function ProjectCard({ project, stats, onEdit, onSyncBills, onView }) {
+  const s = project.driveStatus;
+  return (
+    <div
+      className="rounded-2xl border p-4 sm:p-5 relative overflow-hidden"
+      style={{ background: 'var(--surface)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-sm)' }}
+    >
+      <div className="absolute top-0 right-0 w-32 h-32 rounded-full blur-3xl opacity-15 pointer-events-none" style={{ background: project.color }} />
+
+      <div className="relative flex items-center gap-4">
+        <button
+          onClick={onView}
+          className="w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 border transition hover:scale-[1.03]"
+          style={{ background: project.color + '15', borderColor: project.color + '55' }}
+          title="View this project's ledger"
+        >
+          <span className="font-bold text-sm tracking-wide" style={{ color: project.color, fontFamily: '"IBM Plex Mono", monospace' }}>
+            {project.prefix}
+          </span>
+        </button>
+        <button onClick={onView} className="flex-1 min-w-0 text-left">
+          <div className="font-bold truncate text-base" style={{ color: 'var(--text)' }}>{project.name}</div>
+          <div className="text-xs mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: 'var(--text-3)' }}>
+            <span>{stats.count} bill{stats.count === 1 ? '' : 's'}</span>
+            <span style={{ color: 'var(--text-divider)' }}>·</span>
+            <span className="font-semibold" style={{ color: 'var(--text-2)', fontFamily: '"IBM Plex Mono", monospace' }}>
+              {formatCurrency(stats.total)}
+            </span>
+            {stats.lastDate && (
+              <>
+                <span style={{ color: 'var(--text-divider)' }}>·</span>
+                <span>last {formatDate(stats.lastDate)}</span>
+              </>
+            )}
+          </div>
+          {project.notes && (
+            <div className="text-xs mt-1 truncate italic" style={{ color: 'var(--text-4)' }}>{project.notes}</div>
+          )}
+        </button>
+        <button
+          onClick={onEdit}
+          className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 transition"
+          style={{ color: 'var(--text-4)', background: 'var(--surface-2)' }}
+          title="Edit project"
+        >
+          <Pencil className="w-4 h-4" />
+        </button>
+      </div>
+
+      <div className="relative mt-3 pt-3 border-t flex items-center gap-2 flex-wrap" style={{ borderColor: 'var(--border)' }}>
+        <DriveStatusBadge project={project} />
+        <div className="flex-1" />
+        {project.driveFolderUrl && (
+          <a
+            href={project.driveFolderUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] font-semibold inline-flex items-center gap-1 px-2.5 py-1 rounded-full transition hover:opacity-80"
+            style={{ color: 'var(--text-2)', background: 'var(--surface-2)' }}
+          >
+            <FolderOpen className="w-3 h-3" /> Folder
+          </a>
+        )}
+        {project.driveSheetUrl && (
+          <a
+            href={project.driveSheetUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[11px] font-semibold inline-flex items-center gap-1 px-2.5 py-1 rounded-full transition hover:opacity-80"
+            style={{ color: 'var(--text-2)', background: 'var(--surface-2)' }}
+          >
+            <FileText className="w-3 h-3" /> Sheet
+          </a>
+        )}
+        <button
+          onClick={onSyncBills}
+          disabled={s === 'syncing'}
+          className="text-[11px] font-bold inline-flex items-center gap-1 px-2.5 py-1 rounded-full transition hover:opacity-90 disabled:opacity-60"
+          style={{
+            background: s === 'synced'
+              ? 'linear-gradient(135deg, #16A34A, #0891B2)'
+              : 'linear-gradient(135deg, #2563EB, #7C3AED)',
+            color: '#fff',
+          }}
+          title={s === 'synced' ? 'Re-sync bills' : 'Create folder + sheet, then push bills'}
+        >
+          {s === 'syncing'
+            ? <><Loader2 className="w-3 h-3 animate-spin" /> Syncing…</>
+            : <><RefreshCw className="w-3 h-3" /> Sync {stats.count > 0 ? `(${stats.count})` : ''}</>}
+        </button>
+      </div>
+
+      {project.driveError && s === 'failed' && (
+        <div className="relative mt-2 text-[10px] italic truncate" style={{ color: '#EF4444' }} title={project.driveError}>
+          {project.driveError}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProjectModal({ project, onClose, onSave, onDelete, existingNames }) {
+  const [name, setName] = useState(project?.name || '');
+  const [prefix, setPrefix] = useState(project?.prefix || '');
+  const [color, setColor] = useState(project?.color || PROJECT_COLORS[0]);
+  const [notes, setNotes] = useState(project?.notes || '');
+  const [prefixTouched, setPrefixTouched] = useState(Boolean(project));
+  const [errors, setErrors] = useState({});
+
+  useEffect(() => {
+    if (!prefixTouched) setPrefix(suggestPrefix(name));
+  }, [name, prefixTouched]);
+
+  // Lock body scroll while modal is open
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
+  const handleSave = () => {
+    const e = {};
+    const trimmedName = name.trim();
+    const trimmedPrefix = prefix.trim();
+    if (!trimmedName) e.name = 'Name required';
+    else if (existingNames?.includes(trimmedName.toLowerCase())) e.name = 'Project already exists';
+    if (!trimmedPrefix) e.prefix = 'Prefix required';
+    else if (!/^[A-Z0-9-]{1,6}$/i.test(trimmedPrefix)) e.prefix = 'Use up to 6 letters/numbers';
+    if (Object.keys(e).length) { setErrors(e); return; }
+    onSave({ name: trimmedName, prefix: trimmedPrefix.toUpperCase(), color, notes: notes.trim() });
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 fade-in flex items-stretch sm:items-center justify-center sm:p-6"
+      style={{
+        background: 'var(--overlay)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
+      }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-md h-full sm:h-auto sm:max-h-[90vh]
+                   flex flex-col overflow-hidden
+                   sm:rounded-3xl sm:border scale-in"
+        style={{
+          background: 'var(--surface-elevated)',
+          borderColor: 'var(--border)',
+          boxShadow: 'var(--shadow-lg)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Sticky header */}
+        <div className="flex-shrink-0">
+          <div className="h-1.5">
+            <div
+              className="h-full"
+              style={{ background: 'linear-gradient(90deg, #E11D74, #EA580C, #D97706, #16A34A, #2563EB, #7C3AED)' }}
+            />
+          </div>
+          <div className="p-5 sm:p-6 pb-4 flex items-center justify-between border-b" style={{ borderColor: 'var(--border-soft)' }}>
+            <div className="min-w-0">
+              <div className="text-[10px] font-bold tracking-[0.2em] uppercase" style={{ color: 'var(--text-3)' }}>
+                {project ? 'Edit' : 'Create'}
+              </div>
+              <h2
+                className="text-2xl sm:text-3xl leading-none mt-1 truncate"
+                style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.01em', color: 'var(--text)' }}
+              >
+                {project ? 'Edit Project' : 'New Project'}
+              </h2>
+            </div>
+            <button
+              onClick={onClose}
+              aria-label="Close"
+              className="w-9 h-9 rounded-full flex items-center justify-center transition hover:opacity-80 flex-shrink-0 ml-3"
+              style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }}
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Scrollable body — `min-h-0` is crucial so flex-1 child can shrink and scroll */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-5">
+          <div className="space-y-4">
+            <Field label="Project Name" required error={errors.name}>
+              <Input
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="e.g. Untitled Feature 2026"
+              />
+            </Field>
+            <Field label="Bill Prefix" required error={errors.prefix}>
+              <Input
+                value={prefix}
+                onChange={e => { setPrefix(e.target.value.toUpperCase()); setPrefixTouched(true); }}
+                placeholder="e.g. UF26"
+                maxLength={6}
+                style={{ fontFamily: '"IBM Plex Mono", monospace' }}
+              />
+              <div className="text-[11px] mt-1.5" style={{ color: 'var(--text-3)' }}>
+                Used in bill numbers like{' '}
+                <span
+                  className="font-mono px-1.5 py-0.5 rounded"
+                  style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }}
+                >
+                  {(prefix || 'PRF').toUpperCase()}-0001
+                </span>
+              </div>
+            </Field>
+            <Field label="Color">
+              <div className="flex flex-wrap gap-2">
+                {PROJECT_COLORS.map(c => {
+                  const selected = color === c;
+                  return (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setColor(c)}
+                      className="w-9 h-9 rounded-full transition-transform hover:scale-110"
+                      style={{
+                        background: c,
+                        boxShadow: selected ? `0 0 0 3px var(--surface-elevated), 0 0 0 5px ${c}` : 'none',
+                      }}
+                      aria-label={`color ${c}`}
+                    />
+                  );
+                })}
+              </div>
+            </Field>
+            <Field label="Notes">
+              <Textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                rows={3}
+                placeholder="Optional — director, producer, banner, dates…"
+              />
+            </Field>
+          </div>
+        </div>
+
+        {/* Sticky footer */}
+        <div
+          className="flex-shrink-0 p-4 sm:p-5 flex items-center gap-2 justify-between border-t"
+          style={{ borderColor: 'var(--border-soft)', background: 'var(--surface-elevated)' }}
+        >
+          {onDelete ? (
+            <button
+              onClick={onDelete}
+              className="px-3 sm:px-4 py-2 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5 transition"
+              style={{ color: '#EF4444' }}
+              onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.1)'}
+              onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete
+            </button>
+          ) : <div />}
+          <div className="flex gap-2">
+            <button
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl text-sm font-semibold transition"
+              style={{ color: 'var(--text-2)', background: 'var(--surface-3)' }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              className="px-5 py-2.5 rounded-xl text-white font-bold text-sm shadow-md transition hover:scale-[1.02] active:scale-95"
+              style={{ background: 'linear-gradient(135deg, #D97706, #EA580C, #E11D74)' }}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SETTINGS / CONFIG SCREEN (admin)
+// ============================================================
+function SettingsScreen({ settings, onUpdate, projects, onRefresh, onPushRow, onSyncProject }) {
+  const [scriptUrlDraft, setScriptUrlDraft] = useState(settings.scriptUrl || '');
+  const [folderDraft, setFolderDraft] = useState(settings.parentFolderId || '');
+  const [savedFlash, setSavedFlash] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => { setScriptUrlDraft(settings.scriptUrl || ''); }, [settings.scriptUrl]);
+  useEffect(() => { setFolderDraft(settings.parentFolderId || ''); }, [settings.parentFolderId]);
+
+  const saveSettings = () => {
+    onUpdate({ scriptUrl: scriptUrlDraft.trim(), parentFolderId: folderDraft.trim() });
+    setSavedFlash(true);
+    setTimeout(() => setSavedFlash(false), 1800);
+  };
+
+  const testConnection = async () => {
+    const url = scriptUrlDraft.trim();
+    if (!url) { setTestResult({ ok: false, msg: 'Enter the Apps Script URL first' }); return; }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await driveAdapter.ping(url);
+      setTestResult({ ok: true, msg: `Connected — Config sheet ready`, configUrl: r.configSheetUrl });
+      // Save it automatically if it tested green and isn't yet persisted
+      if (url !== settings.scriptUrl || (r.configSheetUrl && r.configSheetUrl !== settings.configSheetUrl)) {
+        onUpdate({ scriptUrl: url, configSheetUrl: r.configSheetUrl });
+      }
+    } catch (e) {
+      setTestResult({ ok: false, msg: String(e.message || e) });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await onRefresh();
+    setRefreshing(false);
+  };
+
+  return (
+    <div className="fade-in">
+      <ScreenHeader
+        eyebrow="Admin"
+        title="Settings"
+        subtitle="Backend connection and project ↔ Drive mappings"
+      />
+
+      {/* Apps Script connection */}
+      <Section title="Backend Connection" accent="#2563EB" icon={Cloud}>
+        <div className="grid gap-4">
+          <Field label="Apps Script Web App URL" required>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                value={scriptUrlDraft}
+                onChange={e => setScriptUrlDraft(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: '13px' }}
+              />
+              <button
+                onClick={testConnection}
+                disabled={testing || !scriptUrlDraft.trim()}
+                className="px-4 py-3 rounded-xl font-semibold text-sm whitespace-nowrap transition disabled:opacity-50"
+                style={{ background: 'var(--surface-3)', color: 'var(--text)' }}
+              >
+                {testing ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
+                {testing ? 'Testing…' : 'Test'}
+              </button>
+              {scriptUrlDraft.trim() && (
+                <a
+                  href={scriptUrlDraft.trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-4 py-3 rounded-xl font-semibold text-sm whitespace-nowrap transition inline-flex items-center justify-center gap-1.5"
+                  style={{ background: 'var(--surface-2)', color: 'var(--text-2)', border: '1px solid var(--border)' }}
+                  title="Open URL in a new tab to verify the script is reachable"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Open
+                </a>
+              )}
+            </div>
+            {testResult && (
+              <div
+                className="mt-2 px-3 py-2 rounded-lg text-xs flex items-start gap-2"
+                style={{
+                  background: testResult.ok ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.10)',
+                  color: testResult.ok ? '#15803D' : '#B91C1C',
+                }}
+              >
+                {testResult.ok
+                  ? <Check className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  : <CloudOff className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />}
+                <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{testResult.msg}</span>
+              </div>
+            )}
+            <div className="text-[11px] mt-2 leading-relaxed" style={{ color: 'var(--text-3)' }}>
+              Deploy the Apps Script (see <code style={{ background: 'var(--surface-3)', padding: '1px 4px', borderRadius: 3 }}>cine-ledger-apps-script.gs</code>) as a Web App,
+              then paste its URL here. Set "Execute as: Me" and "Who has access: Anyone".
+            </div>
+          </Field>
+
+          <Field label="Parent Folder ID">
+            <Input
+              value={folderDraft}
+              onChange={e => setFolderDraft(e.target.value)}
+              placeholder={DRIVE_PARENT_FOLDER_ID}
+              style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: '13px' }}
+            />
+            <div className="text-[11px] mt-1.5" style={{ color: 'var(--text-3)' }}>
+              The Drive folder where project folders + Config sheet will live. (Currently hardcoded in the Apps Script — update there to change.)
+            </div>
+          </Field>
+
+          {settings.configSheetUrl && (
+            <Field label="Config Sheet">
+              <a
+                href={settings.configSheetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold transition hover:opacity-90"
+                style={{ background: 'var(--surface-2)', color: 'var(--text)', border: '1px solid var(--border)' }}
+              >
+                <FileText className="w-4 h-4" style={{ color: '#16A34A' }} />
+                Open in Google Sheets
+                <ExternalLink className="w-3 h-3 opacity-60" />
+              </a>
+            </Field>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={saveSettings}
+              className="px-5 py-2.5 rounded-xl text-white font-bold text-sm shadow-md transition hover:scale-[1.02] active:scale-95"
+              style={{ background: 'linear-gradient(135deg, #D97706, #EA580C, #E11D74)' }}
+            >
+              Save Settings
+            </button>
+            {savedFlash && (
+              <span className="text-xs inline-flex items-center gap-1 fade-in" style={{ color: '#16A34A' }}>
+                <Check className="w-3.5 h-3.5" /> Saved
+              </span>
+            )}
+          </div>
+        </div>
+      </Section>
+
+      {/* Project links table */}
+      <Section
+        title="Project ↔ Sheet Mappings"
+        accent="#7C3AED"
+        icon={FolderOpen}
+        action={
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing || !settings.scriptUrl}
+            className="text-xs font-bold inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full transition disabled:opacity-50"
+            style={{ background: 'var(--surface-3)', color: 'var(--text)' }}
+          >
+            {refreshing
+              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              : <RefreshCw className="w-3.5 h-3.5" />}
+            Refresh from Drive
+          </button>
+        }
+      >
+        {projects.length === 0 ? (
+          <div className="text-center py-8 text-sm" style={{ color: 'var(--text-3)' }}>
+            No projects yet. Add one from the Projects screen.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {projects.map(p => (
+              <ConfigRow
+                key={p.id}
+                project={p}
+                onPush={(row) => onPushRow(row)}
+                onSync={() => onSyncProject(p.id)}
+                disabled={!settings.scriptUrl}
+              />
+            ))}
+          </div>
+        )}
+        <div className="text-[11px] mt-3 leading-relaxed pt-3 border-t" style={{ color: 'var(--text-3)', borderColor: 'var(--border)' }}>
+          Tap a row's Sync button to auto-create or refresh the folder + sheet. To manually override a stale link, click <Pencil className="w-3 h-3 inline" /> on a row, paste the new URL, and Save — it pushes straight to the Config sheet.
+        </div>
+      </Section>
+
+      <Section title="About" accent="#16A34A" icon={Settings}>
+        <div className="text-sm space-y-2" style={{ color: 'var(--text-2)' }}>
+          <div><span style={{ color: 'var(--text-3)' }}>Brand:</span> {BRAND.name}</div>
+          <div><span style={{ color: 'var(--text-3)' }}>Storage:</span> Browser (window.storage) — bills, projects, parties, settings, theme</div>
+          <div><span style={{ color: 'var(--text-3)' }}>Backend:</span> {settings.scriptUrl ? <span style={{ color: '#16A34A' }}>Configured ✓</span> : <span style={{ color: '#EA580C' }}>Not configured</span>}</div>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+function ConfigRow({ project, onPush, onSync, disabled }) {
+  const [editing, setEditing] = useState(false);
+  const [folderUrl, setFolderUrl] = useState(project.driveFolderUrl || '');
+  const [sheetUrl, setSheetUrl] = useState(project.driveSheetUrl || '');
+  const [folderId, setFolderId] = useState(project.driveFolderId || '');
+  const [sheetId, setSheetId]   = useState(project.driveSheetId || '');
+
+  useEffect(() => { setFolderUrl(project.driveFolderUrl || ''); }, [project.driveFolderUrl]);
+  useEffect(() => { setSheetUrl(project.driveSheetUrl || ''); }, [project.driveSheetUrl]);
+  useEffect(() => { setFolderId(project.driveFolderId || ''); }, [project.driveFolderId]);
+  useEffect(() => { setSheetId(project.driveSheetId || ''); }, [project.driveSheetId]);
+
+  const save = async () => {
+    await onPush({
+      name: project.name,
+      prefix: project.prefix,
+      folderId, folderUrl,
+      sheetId, sheetUrl,
+      lastSynced: new Date().toISOString(),
+      billCount: 0,
+      notes: project.notes || '',
+    });
+    setEditing(false);
+  };
+
+  return (
+    <div className="rounded-xl border p-3 sm:p-4" style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}>
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 border"
+             style={{ background: project.color + '18', borderColor: project.color + '55' }}>
+          <span className="font-bold text-[11px]" style={{ color: project.color, fontFamily: '"IBM Plex Mono", monospace' }}>
+            {project.prefix}
+          </span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="font-semibold truncate" style={{ color: 'var(--text)' }}>{project.name}</div>
+          {!editing && (
+            <div className="text-[11px] truncate mt-0.5" style={{ color: 'var(--text-3)' }}>
+              {sheetUrl
+                ? <span className="font-mono">{sheetUrl.slice(0, 50)}{sheetUrl.length > 50 ? '…' : ''}</span>
+                : <span className="italic">Not synced yet</span>}
+            </div>
+          )}
+        </div>
+        {!editing && (
+          <>
+            {sheetUrl && (
+              <a href={sheetUrl} target="_blank" rel="noopener noreferrer"
+                 className="w-8 h-8 rounded-lg flex items-center justify-center transition hover:opacity-80"
+                 style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }} title="Open sheet">
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
+            <button
+              onClick={() => setEditing(true)}
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition"
+              style={{ background: 'var(--surface-3)', color: 'var(--text-2)' }}
+              title="Edit links"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onSync}
+              disabled={disabled || project.driveStatus === 'syncing'}
+              className="text-[11px] font-bold inline-flex items-center gap-1 px-2.5 py-1 rounded-full transition disabled:opacity-50"
+              style={{ background: 'linear-gradient(135deg, #2563EB, #7C3AED)', color: '#fff' }}
+            >
+              {project.driveStatus === 'syncing'
+                ? <Loader2 className="w-3 h-3 animate-spin" />
+                : <RefreshCw className="w-3 h-3" />}
+              Sync
+            </button>
+          </>
+        )}
+      </div>
+
+      {editing && (
+        <div className="mt-3 grid sm:grid-cols-2 gap-3 fade-in">
+          <Field label="Folder URL">
+            <Input value={folderUrl} onChange={e => setFolderUrl(e.target.value)}
+                   placeholder="https://drive.google.com/drive/folders/…"
+                   style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: '12px' }} />
+          </Field>
+          <Field label="Folder ID">
+            <Input value={folderId} onChange={e => setFolderId(e.target.value)}
+                   placeholder="1abc…"
+                   style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: '12px' }} />
+          </Field>
+          <Field label="Sheet URL">
+            <Input value={sheetUrl} onChange={e => setSheetUrl(e.target.value)}
+                   placeholder="https://docs.google.com/spreadsheets/…"
+                   style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: '12px' }} />
+          </Field>
+          <Field label="Sheet ID">
+            <Input value={sheetId} onChange={e => setSheetId(e.target.value)}
+                   placeholder="1xyz…"
+                   style={{ fontFamily: '"IBM Plex Mono", monospace', fontSize: '12px' }} />
+          </Field>
+          <div className="sm:col-span-2 flex justify-end gap-2 pt-1">
+            <button onClick={() => setEditing(false)}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold transition"
+                    style={{ color: 'var(--text-2)', background: 'var(--surface-3)' }}>
+              Cancel
+            </button>
+            <button onClick={save} disabled={disabled}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition disabled:opacity-50"
+                    style={{ background: 'linear-gradient(135deg, #D97706, #E11D74)' }}>
+              Save to Drive
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
