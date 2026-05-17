@@ -4,9 +4,9 @@ import {
   Building2, User, CreditCard, Smartphone, Banknote, FileCheck, Trash2,
   X, Paperclip, ArrowUpRight, ArrowDownRight, Clapperboard,
   TrendingUp, Hash, Briefcase, CheckCircle2, Clock, AlertCircle,
-  Image as ImageIcon, FileIcon, Receipt, ArrowLeft, Sun, Moon,
+  Image as ImageIcon, FileIcon, Receipt, ArrowLeft, ArrowLeftRight, Sun, Moon,
   RefreshCw, Pencil, FolderOpen,
-  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check, Palette, Mail, Sparkles
+  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check, Palette, Mail, Sparkles, ArrowRight
 } from 'lucide-react';
 
 
@@ -1273,8 +1273,14 @@ const THEME_CSS = `
   @keyframes slideup { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
   @keyframes scaleIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  /* Slow pulsing glow for the Contact Us conversion CTA — eye-catching without being annoying */
+  @keyframes cinePulseGlow {
+    0%, 100% { box-shadow: 0 4px 14px rgba(0,0,0,0.18), 0 0 0 0 rgba(225, 29, 116, 0.5); }
+    50%      { box-shadow: 0 4px 18px rgba(0,0,0,0.22), 0 0 0 10px rgba(225, 29, 116, 0); }
+  }
   .fade-in { animation: fadeIn 0.4s ease-out both; }
   .scale-in { animation: scaleIn 0.2s ease-out both; }
+  .cine-pulse-glow { animation: cinePulseGlow 2.4s ease-out infinite; }
   .theme-transition, .theme-transition * { transition: background-color 0.25s ease, color 0.2s ease, border-color 0.25s ease, box-shadow 0.25s ease; }
 `;
 
@@ -2114,10 +2120,12 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
             <NavBtn active={screen === 'projects'} onClick={() => setScreen('projects')} icon={FolderOpen} label="Projects" />
           </nav>
 
-          {/* Demo-only CTAs — appear next to the nav in demo sessions only */}
+          {/* Demo-only CTAs — appear next to the nav in demo sessions only.
+              Sign In has moved into the Profile menu (Switch Account).
+              Contact Us is the primary CTA — bigger, glowing, persistent. */}
           {isDemo && (
             <>
-              {/* Desktop: full text pills */}
+              {/* Desktop: Tour pill + prominent Contact Us */}
               <div className="hidden sm:flex items-center gap-2">
                 <button
                   onClick={onStartTour}
@@ -2132,38 +2140,25 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
                 <button
                   onClick={onContact}
                   data-tour="contact-cta"
-                  className="px-3 py-1.5 rounded-full text-xs font-bold flex items-center gap-1.5 text-white shadow-md transition hover:scale-105 active:scale-95"
+                  className="px-4 py-2 rounded-full text-sm font-bold flex items-center gap-2 text-white transition hover:scale-105 active:scale-95 cine-pulse-glow"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
-                  <Mail className="w-3.5 h-3.5" />
+                  <Mail className="w-4 h-4" />
                   Contact Us
-                </button>
-                <button
-                  onClick={onSignIn}
-                  className="px-3 py-1.5 rounded-full text-xs font-bold border transition hover:scale-105 active:scale-95"
-                  style={{ borderColor: 'var(--border-strong)', color: 'var(--text)', background: 'var(--surface)' }}
-                >
-                  Sign In
+                  <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
-              {/* Mobile: icon-only buttons to save space */}
+              {/* Mobile: just the prominent Contact Us pill (Tour is desktop-only) */}
               <div className="flex sm:hidden items-center gap-2">
                 <button
                   onClick={onContact}
                   data-tour="contact-cta"
                   aria-label="Contact Us"
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-white shadow-md transition active:scale-95"
+                  className="px-3 h-9 rounded-full text-xs font-bold flex items-center gap-1.5 text-white transition active:scale-95 cine-pulse-glow"
                   style={{ background: 'var(--brand-gradient)' }}
                 >
-                  <Mail className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={onSignIn}
-                  aria-label="Sign In"
-                  className="px-2.5 h-9 rounded-full text-[11px] font-bold border transition active:scale-95"
-                  style={{ borderColor: 'var(--border-strong)', color: 'var(--text)', background: 'var(--surface)' }}
-                >
-                  Sign In
+                  <Mail className="w-3.5 h-3.5" />
+                  Contact
                 </button>
               </div>
             </>
@@ -2221,15 +2216,30 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
                 </div>
 
                 <button
-                  onClick={() => { setMenuOpen(false); onLogout(); }}
-                  className="w-full px-3 py-2.5 text-left text-sm font-semibold flex items-center gap-2 transition hover:opacity-90 rounded-b-xl"
-                  style={{ color: '#EF4444' }}
-                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+                  onClick={() => { setMenuOpen(false); onSignIn?.(); }}
+                  className="w-full px-3 py-2.5 text-left text-sm font-bold flex items-center gap-2 transition border-t"
+                  style={{ color: 'var(--text)', borderColor: 'var(--border-soft)' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-3)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                 >
-                  <ArrowLeft className="w-3.5 h-3.5" />
-                  {authUser?.role === 'demo' ? 'Exit demo' : 'Sign out'}
+                  <ArrowLeftRight className="w-3.5 h-3.5" style={{ color: 'var(--brand-1)' }} />
+                  Switch Account
                 </button>
+
+                {/* Admin-only: hard sign out (back to demo). For demo users this
+                    is redundant — they're already in demo — so we hide it. */}
+                {!isDemo && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onLogout(); }}
+                    className="w-full px-3 py-2.5 text-left text-sm font-semibold flex items-center gap-2 transition rounded-b-xl"
+                    style={{ color: '#EF4444' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    Sign out
+                  </button>
+                )}
               </div>
             )}
           </div>
