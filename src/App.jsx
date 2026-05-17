@@ -101,7 +101,7 @@ const PROJECT_COLORS = [
 // ============================================================
 const DRIVE_PARENT_FOLDER_ID = '1Q-eSFalmrtrzZVh0Ukgrl08S9RT8bF2G';
 // Seed value for the Apps Script URL. Set to '' if you don't want a default.
-const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyOB0FXVnajr8wU1YOKZAewXWOZPxJjqQbxXW9sMExgjCSykK8iKg99vw0-zN9K2hQV-A/exec';
+const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzPfy7FS2m1EgawwBOL1dVkLz3PXgK1djTy-WvDOC2DS-4E0z5xWtt5F-Ic0ziKBU4yFg/exec';
 
 // ============================================================
 // AUTHORIZED ADMIN CREDENTIALS (hard-coded soft gate)
