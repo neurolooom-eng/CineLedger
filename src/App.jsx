@@ -1473,9 +1473,13 @@ export default function App() {
   // Contact Us — lead capture from demo viewers
   const [contactOpen, setContactOpen] = useState(false);
   const submitLead = async (lead) => {
-    // Always send to whichever Apps Script URL is configured (admin's setting, or
-    // the bundled default). Falls back gracefully if the script can't be reached.
-    const url = (settings && settings.scriptUrl) || DEFAULT_SCRIPT_URL;
+    // Lead capture is the developer's "marketing endpoint" and must NOT depend
+    // on settings.scriptUrl (which is an admin-configurable value persisted in
+    // localStorage — easily becomes stale when redeploying the Apps Script).
+    // Always use the hardcoded DEFAULT_SCRIPT_URL — the developer controls it
+    // via the constant at the top of this file and ships a new build to update.
+    const url = DEFAULT_SCRIPT_URL;
+    console.info('[CineLedger] Submitting lead to:', url);
     if (!url) {
       return { ok: false, error: 'No destination configured. Please email us directly.' };
     }
