@@ -818,17 +818,23 @@ export default function App() {
   };
 
   // Pull the latest Config-sheet state into local projects (matches by name)
-  const refreshConfigFromDrive = async () => {
+  const refreshConfigFromDrive = async (opts = {}) => {
     if (!settings.scriptUrl) {
-      flashToast('info', 'Set the Apps Script URL in Settings first');
+      if (!opts.silent) flashToast('info', 'Set the Apps Script URL in Settings first');
       return { ok: false };
     }
+    // Allow the caller to pass an explicit project list (e.g. from the just-loaded
+    // admin data during sign-in, before React state has propagated). Falls back to
+    // the closure `projects` for the normal Settings → Refresh button.
+    const baseProjects = Array.isArray(opts.projectsOverride) ? opts.projectsOverride : projects;
     try {
       const r = await driveAdapter.getConfig(settings.scriptUrl);
-      // Update local projects with drive fields from config
-      const byName = new Map((r.projects || []).map(p => [p.name.toLowerCase(), p]));
-      const next = projects.map(p => {
-        const cfg = byName.get(p.name.toLowerCase());
+      const cfgRows = Array.isArray(r.projects) ? r.projects : [];
+      const localByName = new Map(baseProjects.map(p => [p.name.toLowerCase(), p]));
+
+      // 1) Enrich existing local projects with Drive metadata
+      const enrichedExisting = baseProjects.map(p => {
+        const cfg = cfgRows.find(c => c.name.toLowerCase() === p.name.toLowerCase());
         if (!cfg) return p;
         return {
           ...p,
@@ -840,12 +846,47 @@ export default function App() {
           driveSyncedAt: cfg.lastSynced || p.driveSyncedAt,
         };
       });
+
+      // 2) Materialize Config-sheet projects that DON'T exist locally yet.
+      // This is the recovery path when localStorage was wiped or the user is
+      // on a fresh browser — the Config sheet is the source of truth for which
+      // projects exist in this workspace.
+      let nextIndex = enrichedExisting.length;
+      const newlyMaterialized = cfgRows
+        .filter(cfg => !localByName.has(cfg.name.toLowerCase()))
+        .map(cfg => ({
+          id: uid(),
+          name: cfg.name,
+          prefix: (cfg.prefix || suggestPrefix(cfg.name) || 'BILL').toUpperCase(),
+          color: PROJECT_COLORS[(nextIndex++) % PROJECT_COLORS.length],
+          notes: cfg.notes || '',
+          enabled: true,
+          createdAt: cfg.lastSynced || new Date().toISOString(),
+          driveStatus: cfg.sheetId ? 'synced' : 'pending',
+          driveFolderId: cfg.folderId || null,
+          driveFolderUrl: cfg.folderUrl || null,
+          driveSheetId: cfg.sheetId || null,
+          driveSheetUrl: cfg.sheetUrl || null,
+          driveSyncedAt: cfg.lastSynced || null,
+          driveError: null,
+          billCounter: Number(cfg.billCount) || 0,
+        }));
+
+      const next = [...newlyMaterialized, ...enrichedExisting];
       persistProjects(next);
       persistSettings({ ...settings, configSheetUrl: r.configSheetUrl || settings.configSheetUrl });
-      flashToast('success', `Refreshed ${r.projects?.length || 0} entries from Drive`);
-      return { ok: true, ...r };
+
+      const recovered = newlyMaterialized.length;
+      if (!opts.silent) {
+        if (recovered > 0) {
+          flashToast('success', `Recovered ${recovered} project${recovered === 1 ? '' : 's'} from Drive`);
+        } else {
+          flashToast('success', `Refreshed ${cfgRows.length} entries from Drive`);
+        }
+      }
+      return { ok: true, recovered, total: cfgRows.length, projects: next, ...r };
     } catch (e) {
-      flashToast('info', 'Refresh failed: ' + (e.message || e));
+      if (!opts.silent) flashToast('info', 'Refresh failed: ' + (e.message || e));
       return { ok: false, error: e.message };
     }
   };
@@ -986,7 +1027,9 @@ export default function App() {
   // Auth handlers — soft gate against the hard-coded admin credentials
   const [wantsLogin, setWantsLogin] = useState(false);
 
-  // Reload real (admin) data from storage — used when transitioning from demo → admin
+  // Reload real (admin) data from storage — used when transitioning from demo → admin.
+  // Returns the freshly-loaded projects so callers can pass them to subsequent ops
+  // (avoids the React-state-not-yet-propagated trap).
   const reloadRealData = async () => {
     const [b, pr, pa, sel] = await Promise.all([
       dataLayer.get('cine-bills'),
@@ -1008,6 +1051,7 @@ export default function App() {
     } else {
       setSelectedProjectId(null);
     }
+    return realProjects;
   };
 
   const tryLogin = (email, pin) => {
@@ -1022,8 +1066,15 @@ export default function App() {
       setAuthUser(user);
       dataLayer.set('cine-auth', user);
       setWantsLogin(false);
-      // Coming from demo — swap in the real admin data
-      reloadRealData();
+      // Coming from demo — swap in the real admin data, then try to recover from Drive
+      // if the local cache is empty (fresh browser, wiped storage, etc.).
+      (async () => {
+        const loadedProjects = await reloadRealData();
+        if (loadedProjects.length === 0 && settings.scriptUrl) {
+          flashToast('info', 'Local cache empty — recovering from Drive…');
+          await refreshConfigFromDrive({ projectsOverride: [], silent: false });
+        }
+      })();
       return { ok: true };
     }
     // Helpful diagnostic in dev console — does NOT leak credentials in UI
