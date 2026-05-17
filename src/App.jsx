@@ -422,6 +422,51 @@ function DemoBanner() {
   );
 }
 
+// Slim banner shown on mobile only — sets expectations for prospects who
+// land on a phone. Dismissible (stored in localStorage). Won't render
+// once dismissed or on desktop.
+function MobileBestViewedBanner() {
+  const [dismissed, setDismissed] = useState(true); // pessimistic default; flip on mount if not yet dismissed
+  useEffect(() => {
+    try {
+      if (typeof window === 'undefined') return;
+      if (window.innerWidth >= 768) return; // desktop — never show
+      if (localStorage.getItem('cine-mobile-banner-dismissed') === '1') return;
+      setDismissed(false);
+    } catch {}
+  }, []);
+
+  const dismiss = () => {
+    setDismissed(true);
+    try { localStorage.setItem('cine-mobile-banner-dismissed', '1'); } catch {}
+  };
+
+  if (dismissed) return null;
+  return (
+    <div
+      className="sm:hidden px-3 py-2 flex items-center justify-between gap-2 text-[11px] border-b"
+      style={{
+        background: 'var(--surface-2)',
+        borderColor: 'var(--border)',
+        color: 'var(--text-2)',
+      }}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <Sparkles className="w-3.5 h-3.5 flex-shrink-0" style={{ color: 'var(--brand-1)' }} />
+        <span className="truncate"><span className="font-bold">Best viewed on desktop</span> — full dashboards &amp; charts</span>
+      </div>
+      <button
+        onClick={dismiss}
+        aria-label="Dismiss"
+        className="flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center transition"
+        style={{ color: 'var(--text-3)' }}
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
 // ============================================================
 // PRODUCT TOUR
 // Spotlight-cutout product tour for demo viewers. Auto-starts the
@@ -441,31 +486,22 @@ const TOUR_STOPS = [
     body: 'Accounts for the silver screen. Every paisa, every department, every shoot.',
   },
   {
-    id: 'ledger-table',
+    id: 'dashboard',
+    screen: 'dashboard',
+    selectFirstProject: false,
+    selector: '[data-tour="dashboard-nav"]',
+    placement: 'bottom',
+    title: 'By the numbers.',
+    body: 'KPIs up top. Spend-by-department at a glance. Largest bills and status mix — one screen, every answer.',
+  },
+  {
+    id: 'ledger',
     screen: 'ledger',
     ledgerView: 'table',
     selector: '[data-tour="ledger-views"]',
     placement: 'bottom',
-    title: 'Every transaction. One screen.',
-    body: 'The Table view is your ground truth — searchable, filterable, every bill across every project.',
-  },
-  {
-    id: 'ledger-dept',
-    screen: 'ledger',
-    ledgerView: 'department',
-    selector: '[data-tour="ledger-views"]',
-    placement: 'bottom',
-    title: 'By the numbers.',
-    body: 'Slice spend by department. Catering, Camera, Costume — see where the budget bleeds.',
-  },
-  {
-    id: 'ledger-indiv',
-    screen: 'ledger',
-    ledgerView: 'individual',
-    selector: '[data-tour="ledger-views"]',
-    placement: 'bottom',
-    title: 'Per-person ledgers.',
-    body: 'Who you’ve paid. Who’s owed. Running balances. No more shoot-day surprises.',
+    title: 'Every transaction. Four ways.',
+    body: 'Table for the chronology. Books for the running balance. Individual for per-person ledgers. Department for browsing by category.',
   },
   {
     id: 'new-bill',
@@ -1932,6 +1968,7 @@ export default function App() {
       ) : (
         <>
           {isDemo && <DemoBanner />}
+          <MobileBestViewedBanner />
           <Header
             screen={screen}
             setScreen={setScreen}
@@ -1969,6 +2006,12 @@ export default function App() {
                 onCreateProject={addProject}
                 onGoToProjects={() => setScreen('projects')}
                 defaultProjectName={selectedProjectId ? (visibleProjects.find(p => p.id === selectedProjectId)?.name || '') : ''}
+              />
+            ) : screen === 'dashboard' ? (
+              <DashboardScreen
+                bills={bills}
+                projects={visibleProjects}
+                projectFilter={selectedProjectId ? visibleProjects.find(p => p.id === selectedProjectId) : null}
               />
             ) : screen === 'ledger' ? (
               <LedgerView
@@ -2115,9 +2158,10 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
             className="hidden sm:flex items-center gap-1 rounded-full p-1 border"
             style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}
           >
-            <NavBtn active={screen === 'form'}     onClick={() => setScreen('form')}     icon={Plus}       label="New Bill" />
-            <NavBtn active={screen === 'ledger'}   onClick={() => setScreen('ledger')}   icon={Wallet}     label="Ledger" />
-            <NavBtn active={screen === 'projects'} onClick={() => setScreen('projects')} icon={FolderOpen} label="Projects" />
+            <NavBtn active={screen === 'form'}      onClick={() => setScreen('form')}      icon={Plus}       label="New Bill" />
+            <NavBtn active={screen === 'ledger'}    onClick={() => setScreen('ledger')}    icon={Wallet}     label="Ledger" />
+            <NavBtn active={screen === 'dashboard'} onClick={() => setScreen('dashboard')} icon={TrendingUp} label="Dashboard" data-tour="dashboard-nav" />
+            <NavBtn active={screen === 'projects'}  onClick={() => setScreen('projects')}  icon={FolderOpen} label="Projects" />
           </nav>
 
           {/* Demo-only CTAs — appear next to the nav in demo sessions only.
@@ -2310,12 +2354,13 @@ function ThemeToggle({ theme, onClick }) {
   );
 }
 
-function NavBtn({ active, onClick, icon: Icon, label }) {
+function NavBtn({ active, onClick, icon: Icon, label, ...rest }) {
   return (
     <button
       onClick={onClick}
       className="px-3 lg:px-4 py-2 rounded-full text-sm font-semibold flex items-center gap-2 transition-all"
       style={active ? { background: 'linear-gradient(135deg, var(--brand-2), var(--brand-1))', color: '#fff' } : { color: 'var(--text-2)' }}
+      {...rest}
     >
       <Icon className="w-4 h-4" />
       <span className="hidden lg:inline">{label}</span>
@@ -2503,16 +2548,17 @@ function DriveStatusBadge({ project, small }) {
 // ============================================================
 function BottomNav({ screen, setScreen }) {
   const items = [
-    { id: 'form',     icon: Plus,       label: 'New Bill' },
-    { id: 'ledger',   icon: Wallet,     label: 'Ledger' },
-    { id: 'projects', icon: FolderOpen, label: 'Projects' },
+    { id: 'form',      icon: Plus,       label: 'New Bill' },
+    { id: 'ledger',    icon: Wallet,     label: 'Ledger' },
+    { id: 'dashboard', icon: TrendingUp, label: 'Dashboard' },
+    { id: 'projects',  icon: FolderOpen, label: 'Projects' },
   ];
   return (
     <nav
       className="sm:hidden fixed bottom-0 left-0 right-0 z-30 backdrop-blur-xl border-t"
       style={{ background: 'var(--nav-bg)', borderColor: 'var(--border)' }}
     >
-      <div className="grid grid-cols-3">
+      <div className="grid grid-cols-4">
         {items.map(t => {
           const active = screen === t.id;
           const Icon = t.icon;
@@ -3307,9 +3353,7 @@ function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter, force
       .sort((a, b) => Math.abs(b.closingBalance) - Math.abs(a.closingBalance));
   }, [filtered]);
 
-  // The remaining "grouped card" view now only handles Individual (Department
-  // got promoted to its own dashboard component below).
-  const groups = byIndividual;
+  // (Department and Individual are now rendered inline below; no extra var needed.)
 
   return (
     <div className="fade-in">
@@ -3364,16 +3408,9 @@ function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter, force
           onSelectProject={() => {}}
           embedded
         />
-      ) : view === 'department' ? (
-        <DepartmentDashboard
-          bills={filtered}
-          byDepartment={byDepartment}
-          totals={stats}
-          onDelete={onDelete}
-        />
       ) : (
         <div className="space-y-3">
-          {groups.map(g => (
+          {(view === 'department' ? byDepartment : byIndividual).map(g => (
             <LedgerCard
               key={g.key}
               group={g}
@@ -3604,164 +3641,176 @@ function StatusBadge({ status }) {
 
 
 // ============================================================
-// DEPARTMENT DASHBOARD
-// Hybrid layout for the Department view:
-//   • Top:    3 stat tiles (total / depts / pending)
+// DASHBOARD SCREEN
+// Executive overview — first impression for prospects, day-to-day
+// glance for admins. Shows:
+//   • Top:    3 KPI tiles (total / departments / pending)
 //   • Center: horizontal bar chart, one bar per department
 //   • Below:  two side-by-side widgets (top bills + status mix)
-//   • Bottom: drill-down card list (reuses LedgerCard for parity)
+// Aggregates over all bills the user can currently see (respecting
+// the selected project filter if one is active).
 // ============================================================
-function DepartmentDashboard({ bills, byDepartment, totals, onDelete }) {
-  const [expanded, setExpanded] = useState(null);
+function DashboardScreen({ bills, projects, projectFilter }) {
+  // Scope bills to the active project filter (if any)
+  const scoped = useMemo(() => {
+    if (!projectFilter) return bills;
+    return bills.filter(b => b.project && b.project.toLowerCase() === projectFilter.name.toLowerCase());
+  }, [bills, projectFilter]);
 
-  // Status mix across all filtered bills
+  // Aggregate by department for the bar chart
+  const byDepartment = useMemo(() => {
+    const map = new Map();
+    scoped.forEach(b => {
+      if (!b.department) return;
+      if (!map.has(b.department)) map.set(b.department, []);
+      map.get(b.department).push(b);
+    });
+    return Array.from(map.entries())
+      .map(([dept, list]) => ({
+        key: dept,
+        name: dept,
+        total: list.reduce((s, b) => s + Number(b.amount || 0), 0),
+        count: list.length,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [scoped]);
+
+  const totals = useMemo(() => {
+    const total   = scoped.reduce((s, b) => s + Number(b.amount || 0), 0);
+    const paid    = scoped.filter(b => b.status === 'paid').reduce((s, b) => s + Number(b.amount || 0), 0);
+    const pending = scoped.filter(b => b.status === 'pending').reduce((s, b) => s + Number(b.amount || 0), 0);
+    return { total, paid, pending, count: scoped.length };
+  }, [scoped]);
+
   const statusMix = useMemo(() => {
     const m = { paid: 0, pending: 0, approved: 0 };
-    bills.forEach(b => { if (m[b.status] != null) m[b.status] += 1; });
+    scoped.forEach(b => { if (m[b.status] != null) m[b.status] += 1; });
     return m;
-  }, [bills]);
+  }, [scoped]);
 
-  // Top 5 largest individual bills (regardless of department)
   const topBills = useMemo(() => {
-    return [...bills]
+    return [...scoped]
       .sort((a, b) => Number(b.amount || 0) - Number(a.amount || 0))
       .slice(0, 5);
-  }, [bills]);
-
-  const pendingTotal = useMemo(
-    () => bills.filter(b => b.status === 'pending').reduce((s, b) => s + Number(b.amount || 0), 0),
-    [bills]
-  );
-
-  if (byDepartment.length === 0) {
-    return (
-      <div className="py-20 text-center rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--surface)', color: 'var(--text-3)' }}>
-        No departmental data yet — log a bill and assign it to a department.
-      </div>
-    );
-  }
+  }, [scoped]);
 
   return (
-    <div className="space-y-4 sm:space-y-5">
-      {/* TOP ROW — three KPI tiles */}
-      <div className="grid grid-cols-3 gap-3 sm:gap-4">
-        <DashTile
-          label="Total Spend"
-          value={formatCurrency(totals.total)}
-          sub={`${totals.count} bill${totals.count === 1 ? '' : 's'}`}
-          accent="var(--brand-1)"
-          icon={TrendingUp}
-        />
-        <DashTile
-          label="Departments"
-          value={byDepartment.length}
-          sub="active"
-          accent="var(--brand-2)"
-          icon={Briefcase}
-          mono={false}
-        />
-        <DashTile
-          label="Pending"
-          value={formatCurrency(pendingTotal)}
-          sub={`${statusMix.pending} bill${statusMix.pending === 1 ? '' : 's'}`}
-          accent="#CA8A04"
-          icon={Clock}
-        />
-      </div>
+    <div className="fade-in">
+      <ScreenHeader
+        eyebrow={projectFilter ? `Dashboard · ${projectFilter.prefix}` : 'Dashboard'}
+        title="By the Numbers"
+        subtitle={projectFilter
+          ? `Executive view of ${projectFilter.name}`
+          : 'Spend across every department, every project'}
+      />
 
-      {/* CENTER — horizontal bar chart */}
-      <DashCard title="Spend by Department" icon={Briefcase} accent="var(--brand-1)">
-        <div className="space-y-2.5">
-          {byDepartment.map(d => {
-            const dept = getDept(d.name);
-            const pct = totals.total > 0 ? (d.total / byDepartment[0].total) * 100 : 0;
-            const share = totals.total > 0 ? (d.total / totals.total) * 100 : 0;
-            return (
-              <div key={d.key} className="flex items-center gap-2 sm:gap-3">
-                {/* Left label */}
-                <div className="w-24 sm:w-36 flex-shrink-0 flex items-center gap-1.5 text-xs sm:text-sm" style={{ color: 'var(--text-2)' }}>
-                  <span className="text-base flex-shrink-0">{dept.emoji}</span>
-                  <span className="truncate font-semibold">{d.name}</span>
-                </div>
-                {/* Bar */}
-                <div className="flex-1 h-7 sm:h-8 rounded-md relative overflow-hidden" style={{ background: 'var(--surface-3)' }}>
-                  <div
-                    className="absolute inset-y-0 left-0 rounded-md transition-[width] duration-500"
-                    style={{
-                      width: `${pct}%`,
-                      background: `linear-gradient(90deg, ${dept.color}cc, ${dept.color})`,
-                      boxShadow: `0 0 12px ${dept.color}55`,
-                    }}
-                  />
-                  <div className="absolute inset-0 flex items-center justify-end pr-2 text-[10px] font-bold" style={{ color: 'var(--text-3)', fontFamily: '"IBM Plex Mono", monospace' }}>
-                    {share.toFixed(1)}%
-                  </div>
-                </div>
-                {/* Right value */}
-                <div className="w-20 sm:w-28 flex-shrink-0 text-right text-xs sm:text-sm font-bold" style={{ fontFamily: '"IBM Plex Mono", monospace', color: 'var(--text)' }}>
-                  {formatCurrency(d.total)}
-                </div>
-              </div>
-            );
-          })}
+      {scoped.length === 0 ? (
+        <div className="py-20 text-center rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--surface)', color: 'var(--text-3)' }}>
+          No bills yet — log a transaction and the dashboard fills in automatically.
         </div>
-      </DashCard>
+      ) : (
+        <div className="space-y-4 sm:space-y-5">
+          {/* TOP ROW — three KPI tiles */}
+          <div className="grid grid-cols-3 gap-3 sm:gap-4">
+            <DashTile
+              label="Total Spend"
+              value={formatCurrency(totals.total)}
+              sub={`${totals.count} bill${totals.count === 1 ? '' : 's'}`}
+              accent="var(--brand-1)"
+              icon={TrendingUp}
+            />
+            <DashTile
+              label="Departments"
+              value={byDepartment.length}
+              sub="active"
+              accent="var(--brand-2)"
+              icon={Briefcase}
+              mono={false}
+            />
+            <DashTile
+              label="Pending"
+              value={formatCurrency(totals.pending)}
+              sub={`${statusMix.pending} bill${statusMix.pending === 1 ? '' : 's'}`}
+              accent="#CA8A04"
+              icon={Clock}
+            />
+          </div>
 
-      {/* BOTTOM ROW — top bills + status mix */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <DashCard title="Largest Bills" icon={ArrowUpRight} accent="#2563EB">
-          {topBills.length === 0 ? (
-            <div className="text-xs text-center py-4" style={{ color: 'var(--text-4)' }}>No bills yet</div>
-          ) : (
-            <div className="space-y-1.5">
-              {topBills.map(b => {
-                const dept = getDept(b.department);
-                return (
-                  <div key={b.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg" style={{ background: 'var(--surface)' }}>
-                    <div className="w-7 h-7 rounded-md flex items-center justify-center text-sm flex-shrink-0" style={{ background: dept.color + '18' }}>
-                      {dept.emoji}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="text-xs font-bold truncate" style={{ color: 'var(--text)' }}>{b.paidTo || '—'}</div>
-                      <div className="text-[10px] flex items-center gap-1 mt-0.5" style={{ color: 'var(--text-4)' }}>
-                        <span className="font-mono">{b.billNumber || '—'}</span>
-                        <span>·</span>
-                        <span>{b.department}</span>
+          {/* CENTER — horizontal bar chart */}
+          {byDepartment.length > 0 && (
+            <DashCard title="Spend by Department" icon={Briefcase} accent="var(--brand-1)">
+              <div className="space-y-2.5">
+                {byDepartment.map(d => {
+                  const dept = getDept(d.name);
+                  const pct = byDepartment[0].total > 0 ? (d.total / byDepartment[0].total) * 100 : 0;
+                  const share = totals.total > 0 ? (d.total / totals.total) * 100 : 0;
+                  return (
+                    <div key={d.key} className="flex items-center gap-2 sm:gap-3">
+                      <div className="w-24 sm:w-36 flex-shrink-0 flex items-center gap-1.5 text-xs sm:text-sm" style={{ color: 'var(--text-2)' }}>
+                        <span className="text-base flex-shrink-0">{dept.emoji}</span>
+                        <span className="truncate font-semibold">{d.name}</span>
+                      </div>
+                      <div className="flex-1 h-7 sm:h-8 rounded-md relative overflow-hidden" style={{ background: 'var(--surface-3)' }}>
+                        <div
+                          className="absolute inset-y-0 left-0 rounded-md transition-[width] duration-500"
+                          style={{
+                            width: `${pct}%`,
+                            background: `linear-gradient(90deg, ${dept.color}cc, ${dept.color})`,
+                            boxShadow: `0 0 12px ${dept.color}55`,
+                          }}
+                        />
+                        <div className="absolute inset-0 flex items-center justify-end pr-2 text-[10px] font-bold" style={{ color: 'var(--text-3)', fontFamily: '"IBM Plex Mono", monospace' }}>
+                          {share.toFixed(1)}%
+                        </div>
+                      </div>
+                      <div className="w-20 sm:w-28 flex-shrink-0 text-right text-xs sm:text-sm font-bold" style={{ fontFamily: '"IBM Plex Mono", monospace', color: 'var(--text)' }}>
+                        {formatCurrency(d.total)}
                       </div>
                     </div>
-                    <div className="text-xs sm:text-sm font-bold flex-shrink-0" style={{ fontFamily: '"IBM Plex Mono", monospace', color: 'var(--text)' }}>
-                      {formatCurrency(b.amount)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            </DashCard>
           )}
-        </DashCard>
 
-        <DashCard title="Status Mix" icon={CheckCircle2} accent="#16A34A">
-          <StatusMixWidget mix={statusMix} totalBills={bills.length} />
-        </DashCard>
-      </div>
+          {/* BOTTOM ROW — top bills + status mix */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <DashCard title="Largest Bills" icon={ArrowUpRight} accent="#2563EB">
+              {topBills.length === 0 ? (
+                <div className="text-xs text-center py-4" style={{ color: 'var(--text-4)' }}>No bills yet</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {topBills.map(b => {
+                    const dept = getDept(b.department);
+                    return (
+                      <div key={b.id} className="flex items-center gap-2 py-1.5 px-2 rounded-lg" style={{ background: 'var(--surface)' }}>
+                        <div className="w-7 h-7 rounded-md flex items-center justify-center text-sm flex-shrink-0" style={{ background: dept.color + '18' }}>
+                          {dept.emoji}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-bold truncate" style={{ color: 'var(--text)' }}>{b.paidTo || '—'}</div>
+                          <div className="text-[10px] flex items-center gap-1 mt-0.5" style={{ color: 'var(--text-4)' }}>
+                            <span className="font-mono">{b.billNumber || '—'}</span>
+                            <span>·</span>
+                            <span>{b.department}</span>
+                          </div>
+                        </div>
+                        <div className="text-xs sm:text-sm font-bold flex-shrink-0" style={{ fontFamily: '"IBM Plex Mono", monospace', color: 'var(--text)' }}>
+                          {formatCurrency(b.amount)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </DashCard>
 
-      {/* DRILL-DOWN — department cards (reuses LedgerCard) */}
-      <div className="pt-2">
-        <div className="text-[10px] uppercase tracking-[0.2em] font-bold mb-2.5 px-1" style={{ color: 'var(--text-3)' }}>
-          Browse by Department
+            <DashCard title="Status Mix" icon={CheckCircle2} accent="#16A34A">
+              <StatusMixWidget mix={statusMix} totalBills={scoped.length} />
+            </DashCard>
+          </div>
         </div>
-        <div className="space-y-3">
-          {byDepartment.map(g => (
-            <LedgerCard
-              key={g.key}
-              group={g}
-              view="department"
-              expanded={expanded === g.key}
-              onToggle={() => setExpanded(expanded === g.key ? null : g.key)}
-              onDelete={onDelete}
-            />
-          ))}
-        </div>
-      </div>
+      )}
     </div>
   );
 }
