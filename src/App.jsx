@@ -6,7 +6,7 @@ import {
   TrendingUp, Hash, Briefcase, CheckCircle2, Clock, AlertCircle,
   Image as ImageIcon, FileIcon, Receipt, ArrowLeft, Sun, Moon,
   RefreshCw, Pencil, FolderOpen,
-  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check
+  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check, Palette
 } from 'lucide-react';
 
 
@@ -50,16 +50,16 @@ const BRAND = {
 };
 
 const DEPARTMENTS = [
-  { name: 'Direction',        color: '#E11D74', emoji: '🎬' },
+  { name: 'Direction',        color: 'var(--brand-1)', emoji: '🎬' },
   { name: 'Production',       color: '#2563EB', emoji: '🎥' },
-  { name: 'Cinematography',   color: '#EA580C', emoji: '📷' },
+  { name: 'Cinematography',   color: 'var(--brand-2)', emoji: '📷' },
   { name: 'Art & Design',     color: '#DB2777', emoji: '🎨' },
   { name: 'Costume',          color: '#C026D3', emoji: '👗' },
   { name: 'Makeup & Hair',    color: '#E11D48', emoji: '💄' },
   { name: 'Sound',            color: '#4F46E5', emoji: '🎵' },
   { name: 'Editing',          color: '#0D9488', emoji: '✂️' },
   { name: 'VFX',              color: '#7C3AED', emoji: '✨' },
-  { name: 'Music',            color: '#D97706', emoji: '🎼' },
+  { name: 'Music',            color: 'var(--brand-3)', emoji: '🎼' },
   { name: 'Lighting',         color: '#CA8A04', emoji: '💡' },
   { name: 'Stunts',           color: '#DC2626', emoji: '🤸' },
   { name: 'Locations',        color: '#16A34A', emoji: '📍' },
@@ -86,8 +86,8 @@ const STATUSES = [
 ];
 
 const PROJECT_COLORS = [
-  '#E11D74', '#2563EB', '#EA580C', '#16A34A',
-  '#7C3AED', '#D97706', '#0891B2', '#DC2626',
+  'var(--brand-1)', '#2563EB', 'var(--brand-2)', '#16A34A',
+  '#7C3AED', 'var(--brand-3)', '#0891B2', '#DC2626',
   '#0D9488', '#C026D3', '#65A30D', '#4F46E5',
 ];
 
@@ -115,6 +115,31 @@ const ADMIN_PIN   = '3397';
 // no real Drive sync, no admin gear.
 const DEMO_USER = { email: 'demo@cineledger.app', role: 'demo' };
 
+// ============================================================
+// COLOR PALETTES
+// Each palette redefines 4 brand color CSS variables. Users pick
+// one via the palette picker; selection persists in storage.
+// ============================================================
+const PALETTES = [
+  { id: 'cinema',  name: 'Cinema',  c1: '#E11D74', c2: '#EA580C', c3: '#D97706', c4: '#7C3AED' },
+  { id: 'noir',    name: 'Noir',    c1: '#0F172A', c2: '#475569', c3: '#DC2626', c4: '#CA8A04' },
+  { id: 'indie',   name: 'Indie',   c1: '#0D9488', c2: '#22C55E', c3: '#F472B6', c4: '#A78BFA' },
+  { id: 'studio',  name: 'Studio',  c1: '#4F46E5', c2: '#0EA5E9', c3: '#06B6D4', c4: '#8B5CF6' },
+  { id: 'forest',  name: 'Forest',  c1: '#059669', c2: '#14B8A6', c3: '#65A30D', c4: '#84CC16' },
+  { id: 'sunset',  name: 'Sunset',  c1: '#DC2626', c2: '#F97316', c3: '#EAB308', c4: '#EC4899' },
+  { id: 'royal',   name: 'Royal',   c1: '#7E22CE', c2: '#A855F7', c3: '#EC4899', c4: '#D97706' },
+  { id: 'ocean',   name: 'Ocean',   c1: '#1E40AF', c2: '#2563EB', c3: '#06B6D4', c4: '#10B981' },
+  { id: 'vintage', name: 'Vintage', c1: '#854D0E', c2: '#92400E', c3: '#A16207', c4: '#C2410C' },
+  { id: 'mono',    name: 'Mono',    c1: '#1E293B', c2: '#475569', c3: '#64748B', c4: '#94A3B8' },
+  { id: 'vibrant', name: 'Vibrant', c1: '#EC4899', c2: '#3B82F6', c3: '#84CC16', c4: '#F97316' },
+  { id: 'pastel',  name: 'Pastel',  c1: '#F472B6', c2: '#FB923C', c3: '#34D399', c4: '#A78BFA' },
+];
+const DEFAULT_PALETTE_ID = 'cinema';
+
+function getPalette(id) {
+  return PALETTES.find(p => p.id === id) || PALETTES[0];
+}
+
 // Demo seed data — projects, bills, parties. Loaded fresh each demo session.
 function getDemoSeed() {
   const now = new Date();
@@ -123,7 +148,7 @@ function getDemoSeed() {
     return d.toISOString().slice(0, 10);
   };
   const projects = [
-    { id: 'demo-p1', name: 'Untitled Feature 2026', prefix: 'UF26', color: '#E11D74', notes: 'Director: R. Menon · Producer: BrandEpic', enabled: true, createdAt: new Date().toISOString(), driveStatus: 'synced', driveFolderId: 'demo', driveFolderUrl: '#', driveSheetId: 'demo', driveSheetUrl: '#', driveSyncedAt: new Date().toISOString(), driveError: null, billCounter: 7 },
+    { id: 'demo-p1', name: 'Untitled Feature 2026', prefix: 'UF26', color: 'var(--brand-1)', notes: 'Director: R. Menon · Producer: BrandEpic', enabled: true, createdAt: new Date().toISOString(), driveStatus: 'synced', driveFolderId: 'demo', driveFolderUrl: '#', driveSheetId: 'demo', driveSheetUrl: '#', driveSyncedAt: new Date().toISOString(), driveError: null, billCounter: 7 },
     { id: 'demo-p2', name: 'Music Video — Last Take', prefix: 'LTKV', color: '#16A34A', notes: 'Artist: Anaya · 3-day shoot', enabled: true, createdAt: new Date().toISOString(), driveStatus: 'synced', driveFolderId: 'demo', driveFolderUrl: '#', driveSheetId: 'demo', driveSheetUrl: '#', driveSyncedAt: new Date().toISOString(), driveError: null, billCounter: 4 },
     { id: 'demo-p3', name: 'Brand Film — Indigo', prefix: 'INDG', color: '#2563EB', notes: 'Client: Indigo Co · 30s + 15s cutdown', enabled: true, createdAt: new Date().toISOString(), driveStatus: 'pending', driveFolderId: null, driveFolderUrl: null, driveSheetId: null, driveSheetUrl: null, driveSyncedAt: null, driveError: null, billCounter: 0 },
   ];
@@ -160,7 +185,7 @@ function getDemoSeed() {
   return { projects, bills, parties };
 }
 
-function LoginScreen({ onLogin, onStartDemo, theme, toggleTheme }) {
+function LoginScreen({ onLogin, onStartDemo, onCancel, theme, toggleTheme }) {
   const [email, setEmail] = useState('');
   const [pin, setPin] = useState('');
   const [showPin, setShowPin] = useState(false);
@@ -190,7 +215,7 @@ function LoginScreen({ onLogin, onStartDemo, theme, toggleTheme }) {
       <div className="mb-6 flex flex-col items-center">
         <div
           className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg mb-4"
-          style={{ background: 'linear-gradient(135deg, #E11D74 0%, #EA580C 50%, #D97706 100%)' }}
+          style={{ background: 'linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 50%, var(--brand-3) 100%)' }}
         >
           <Clapperboard className="w-8 h-8 text-white" strokeWidth={2.5} />
         </div>
@@ -276,7 +301,7 @@ function LoginScreen({ onLogin, onStartDemo, theme, toggleTheme }) {
           type="submit"
           disabled={busy || !email || !pin}
           className="w-full py-3 rounded-xl text-white font-bold text-sm shadow-md transition hover:scale-[1.01] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          style={{ background: 'linear-gradient(135deg, #D97706, #EA580C, #E11D74)' }}
+          style={{ background: 'linear-gradient(135deg, var(--brand-3), var(--brand-2), var(--brand-1))' }}
         >
           {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
           {busy ? 'Verifying…' : 'Sign In'}
@@ -307,22 +332,83 @@ function LoginScreen({ onLogin, onStartDemo, theme, toggleTheme }) {
         <div className="mt-3 text-[11px] text-center leading-relaxed" style={{ color: 'var(--text-3)' }}>
           Explore CineLedger with sample data — no login needed.
         </div>
+
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="mt-3 w-full py-2 rounded-lg text-xs font-semibold transition"
+            style={{ color: 'var(--text-3)' }}
+          >
+            ← Back to demo
+          </button>
+        )}
       </form>
 
       <div className="mt-6 text-[11px]" style={{ color: 'var(--text-4)' }}>
-        © 2026 <span style={{ color: '#E11D74', fontWeight: 700 }}>BrandEpic</span> by <span style={{ color: 'var(--text-2)', fontWeight: 700 }}>Aang</span>
+        © 2026 <span style={{ color: 'var(--brand-1)', fontWeight: 700 }}>BrandEpic</span> by <span style={{ color: 'var(--text-2)', fontWeight: 700 }}>Aang</span>
       </div>
     </div>
   );
 }
 
+// Palette picker — Office-style quadrant circles in a grid.
+// Each circle shows the 4 brand colors of a palette. Selected one
+// gets a checkmark badge.
+function PalettePicker({ current, onChange, columns = 6 }) {
+  return (
+    <div
+      className="grid gap-2.5"
+      style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+    >
+      {PALETTES.map(p => {
+        const selected = current === p.id;
+        return (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => onChange(p.id)}
+            title={p.name}
+            className="relative aspect-square rounded-xl transition-all hover:scale-110 active:scale-95"
+            style={{
+              padding: '4px',
+              background: selected ? 'var(--surface-3)' : 'transparent',
+              border: selected ? '1px solid var(--border-strong)' : '1px solid transparent',
+            }}
+          >
+            <div
+              className="w-full h-full rounded-full overflow-hidden border"
+              style={{ borderColor: selected ? 'var(--text)' : 'var(--border)' }}
+            >
+              <div className="grid grid-cols-2 grid-rows-2 w-full h-full">
+                <div style={{ background: p.c1 }} />
+                <div style={{ background: p.c2 }} />
+                <div style={{ background: p.c4 }} />
+                <div style={{ background: p.c3 }} />
+              </div>
+            </div>
+            {selected && (
+              <div
+                className="absolute -top-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center shadow-md"
+                style={{ background: '#2563EB' }}
+              >
+                <Check className="w-2.5 h-2.5 text-white" strokeWidth={4} />
+              </div>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // Banner shown while a demo session is active
-function DemoBanner({ onExit }) {
+function DemoBanner({ onSignIn, onExit }) {
   return (
     <div
       className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2 text-white text-xs sm:text-sm"
       style={{
-        background: 'linear-gradient(90deg, #E11D74 0%, #EA580C 50%, #D97706 100%)',
+        background: 'linear-gradient(90deg, var(--brand-1) 0%, var(--brand-2) 50%, var(--brand-3) 100%)',
         fontWeight: 600,
       }}
     >
@@ -334,15 +420,19 @@ function DemoBanner({ onExit }) {
           <span className="sm:hidden opacity-90">Sample data, session-only</span>
         </span>
       </div>
-      <button
-        onClick={onExit}
-        className="flex-shrink-0 px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition"
-        style={{ background: 'rgba(0,0,0,0.25)' }}
-        onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,0,0,0.4)'}
-        onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,0,0,0.25)'}
-      >
-        Exit
-      </button>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {onSignIn && (
+          <button
+            onClick={onSignIn}
+            className="px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition"
+            style={{ background: 'rgba(255,255,255,0.95)', color: 'var(--brand-1)' }}
+            onMouseEnter={e => e.currentTarget.style.background = '#ffffff'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.95)'}
+          >
+            Sign In
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -483,7 +573,7 @@ const THEME_CSS = `
     --select-option-text: #0F172A;
     --select-arrow: #64748b;
     --money-paid: #059669;
-    --money-recv: #D97706;
+    --money-recv: var(--brand-3);
   }
   .theme-dark {
     --bg: radial-gradient(ellipse 80% 60% at 15% 0%, rgba(225, 29, 116, 0.18) 0%, transparent 55%),
@@ -584,10 +674,16 @@ export default function App() {
     } catch (e) {}
     return 'light';
   });
+  const [paletteId, setPaletteId] = useState(DEFAULT_PALETTE_ID);
+  const palette = useMemo(() => getPalette(paletteId), [paletteId]);
+  const changePalette = (id) => {
+    setPaletteId(id);
+    dataLayer.setRaw('cine-palette', id);
+  };
 
   useEffect(() => {
     (async () => {
-      const [b, pr, pa, t, sel, st, au] = await Promise.all([
+      const [b, pr, pa, t, sel, st, au, pal] = await Promise.all([
         dataLayer.get('cine-bills'),
         dataLayer.get('cine-projects'),
         dataLayer.get('cine-parties'),
@@ -595,6 +691,7 @@ export default function App() {
         dataLayer.getRaw('cine-selected-project'),
         dataLayer.get('cine-settings'),
         dataLayer.get('cine-auth'),
+        dataLayer.getRaw('cine-palette'),
       ]);
       if (Array.isArray(b)) setBills(b);
       if (Array.isArray(pr)) {
@@ -603,6 +700,7 @@ export default function App() {
       }
       if (Array.isArray(pa)) setParties(pa);
       if (t === 'dark' || t === 'light') setTheme(t);
+      if (pal && PALETTES.some(p => p.id === pal)) setPaletteId(pal);
       if (sel) setSelectedProjectId(sel);
       if (st && typeof st === 'object') {
         setSettings(s => ({
@@ -615,6 +713,14 @@ export default function App() {
       // Restore auth only if it matches the hard-coded admin (defensive)
       if (au && typeof au === 'object' && au.email && au.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
         setAuthUser(au);
+      } else {
+        // No admin session — boot into Demo Mode by default with sample data.
+        // Admin-stored data is left intact in storage; demo lives in memory.
+        const seed = getDemoSeed();
+        setBills(seed.bills);
+        setProjects(seed.projects);
+        setParties(seed.parties);
+        setAuthUser(DEMO_USER);
       }
       setLoaded(true);
     })();
@@ -877,6 +983,20 @@ export default function App() {
   };
 
   // Auth handlers — soft gate against the hard-coded admin credentials
+  const [wantsLogin, setWantsLogin] = useState(false);
+
+  // Reload real (admin) data from storage — used when transitioning from demo → admin
+  const reloadRealData = async () => {
+    const [b, pr, pa] = await Promise.all([
+      dataLayer.get('cine-bills'),
+      dataLayer.get('cine-projects'),
+      dataLayer.get('cine-parties'),
+    ]);
+    setBills(Array.isArray(b) ? b : []);
+    setProjects(Array.isArray(pr) ? pr.map(p => p.enabled === false ? p : { ...p, enabled: p.enabled !== false }) : []);
+    setParties(Array.isArray(pa) ? pa : []);
+  };
+
   const tryLogin = (email, pin) => {
     // Aggressive normalization: lowercase, strip all whitespace (including zero-width),
     // strip surrounding quotes (in case the user pasted from a list).
@@ -888,6 +1008,9 @@ export default function App() {
       const user = { email: ADMIN_EMAIL, role: 'admin', loggedInAt: new Date().toISOString() };
       setAuthUser(user);
       dataLayer.set('cine-auth', user);
+      setWantsLogin(false);
+      // Coming from demo — swap in the real admin data
+      reloadRealData();
       return { ok: true };
     }
     // Helpful diagnostic in dev console — does NOT leak credentials in UI
@@ -899,25 +1022,26 @@ export default function App() {
     return { ok: false, error: 'Wrong email or PIN' };
   };
 
-  const startDemo = () => {
-    // Seed demo data fresh (don't persist demo session or its data)
+  // Switch into demo mode (used by both initial load and admin-logout)
+  const enterDemoMode = () => {
     const seed = getDemoSeed();
     setBills(seed.bills);
     setProjects(seed.projects);
     setParties(seed.parties);
     setAuthUser(DEMO_USER);
-    // Intentionally do NOT call dataLayer.set('cine-auth', DEMO_USER) — demo is session-only
-    setScreen('ledger'); // start on Ledger which now defaults to Table view
+    setScreen('ledger');
+  };
+
+  const startDemo = () => {
+    setWantsLogin(false);
+    enterDemoMode();
   };
 
   const logout = () => {
-    setAuthUser(null);
+    // Going back to demo, not to login screen
     dataLayer.set('cine-auth', null);
-    setScreen('form');
-    // If exiting demo, wipe the in-memory seed so it doesn't leak into next login
-    if (isDemo) {
-      setBills([]); setProjects([]); setParties([]);
-    }
+    setWantsLogin(false);
+    enterDemoMode();
   };
 
   // Filter to ENABLED projects for screens used by non-admins; admins see all.
@@ -929,11 +1053,18 @@ export default function App() {
 
   return (
     <div
-      className={`min-h-screen relative theme-transition theme-${theme} flex flex-col`}
+      className={`min-h-screen relative theme-transition theme-${theme} palette-${paletteId} flex flex-col`}
       style={{
         fontFamily: '"DM Sans", system-ui, sans-serif',
         background: 'var(--bg)',
         color: 'var(--text)',
+        '--brand-1': palette.c1,
+        '--brand-2': palette.c2,
+        '--brand-3': palette.c3,
+        '--brand-4': palette.c4,
+        // Pre-built gradient that any caller can use directly
+        '--brand-gradient': `linear-gradient(135deg, ${palette.c1} 0%, ${palette.c2} 50%, ${palette.c3} 100%)`,
+        '--brand-gradient-h': `linear-gradient(90deg, ${palette.c1}, ${palette.c2}, ${palette.c3}, ${palette.c4})`,
       }}
     >
       <style>{THEME_CSS}</style>
@@ -941,11 +1072,19 @@ export default function App() {
 
       {!loaded ? (
         <div className="flex-1 flex items-center justify-center" style={{ color: 'var(--text-4)' }}>Loading…</div>
+      ) : wantsLogin ? (
+        <LoginScreen
+          onLogin={tryLogin}
+          onStartDemo={startDemo}
+          onCancel={() => setWantsLogin(false)}
+          theme={theme}
+          toggleTheme={toggleTheme}
+        />
       ) : !authUser ? (
         <LoginScreen onLogin={tryLogin} onStartDemo={startDemo} theme={theme} toggleTheme={toggleTheme} />
       ) : (
         <>
-          {isDemo && <DemoBanner onExit={logout} />}
+          {isDemo && <DemoBanner onSignIn={() => setWantsLogin(true)} onExit={logout} />}
           <Header
             screen={screen}
             setScreen={setScreen}
@@ -956,6 +1095,8 @@ export default function App() {
             isAdmin={isAdmin}
             authUser={authUser}
             onLogout={logout}
+            paletteId={paletteId}
+            onPaletteChange={changePalette}
           />
 
           {visibleProjects.length > 0 && (
@@ -1010,6 +1151,8 @@ export default function App() {
                 onSyncProject={syncProjectBills}
                 onLogout={logout}
                 authUser={authUser}
+                paletteId={paletteId}
+                onPaletteChange={changePalette}
               />
             ) : (
               // Fallback — non-admin tried to reach a restricted screen
@@ -1040,7 +1183,7 @@ export default function App() {
 // ============================================================
 // HEADER
 // ============================================================
-function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, settingsConfigured, isAdmin, authUser, onLogout }) {
+function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, settingsConfigured, isAdmin, authUser, onLogout, paletteId, onPaletteChange }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
   useEffect(() => {
@@ -1058,12 +1201,12 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
         <div className="flex items-center gap-3 min-w-0">
           <div className="relative flex-shrink-0">
             <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl flex items-center justify-center shadow-lg" style={{
-              background: 'linear-gradient(135deg, #E11D74 0%, #EA580C 50%, #D97706 100%)',
+              background: 'linear-gradient(135deg, var(--brand-1) 0%, var(--brand-2) 50%, var(--brand-3) 100%)',
             }}>
               <Clapperboard className="w-5 h-5 sm:w-6 sm:h-6 text-white" strokeWidth={2.5} />
             </div>
             <div className="absolute -inset-1 rounded-xl opacity-40 blur-md -z-10" style={{
-              background: 'linear-gradient(135deg, #E11D74, #D97706)',
+              background: 'linear-gradient(135deg, var(--brand-1), var(--brand-3))',
             }} />
           </div>
           <div className="min-w-0">
@@ -1086,14 +1229,14 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
               className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full border flex items-center justify-center transition-all hover:scale-105 active:scale-95 ${screen === 'settings' ? 'ring-2 ring-offset-1' : ''}`}
               style={{
                 background: 'var(--surface)',
-                borderColor: screen === 'settings' ? '#E11D74' : 'var(--border)',
+                borderColor: screen === 'settings' ? 'var(--brand-1)' : 'var(--border)',
                 color: 'var(--text-2)',
               }}
             >
               <Settings className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
               {!settingsConfigured && (
                 <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"
-                      style={{ background: '#EA580C', borderColor: 'var(--surface)' }}
+                      style={{ background: 'var(--brand-2)', borderColor: 'var(--surface)' }}
                       title="Apps Script URL not configured" />
               )}
             </button>
@@ -1122,7 +1265,7 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
             </button>
             {menuOpen && (
               <div
-                className="absolute right-0 top-full mt-2 w-56 rounded-xl border overflow-hidden scale-in"
+                className="absolute right-0 top-full mt-2 w-72 rounded-xl border scale-in"
                 style={{
                   background: 'var(--surface-elevated)',
                   borderColor: 'var(--border-strong)',
@@ -1139,20 +1282,36 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
                   </div>
                   {isAdmin && (
                     <div className="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded font-bold"
-                         style={{ background: 'rgba(225,29,116,0.15)', color: '#E11D74' }}>
+                         style={{ background: 'rgba(225,29,116,0.15)', color: 'var(--brand-1)' }}>
                       ADMIN
                     </div>
                   )}
                 </div>
+
+                {/* Palette picker — visible to all users (incl. demo) for live pitches */}
+                <div className="px-3 py-3 border-b" style={{ borderColor: 'var(--border-soft)' }}>
+                  <div className="text-[10px] uppercase tracking-wider font-bold mb-2.5" style={{ color: 'var(--text-3)' }}>
+                    Color Theme
+                  </div>
+                  <PalettePicker
+                    current={paletteId}
+                    onChange={onPaletteChange}
+                    columns={4}
+                  />
+                  <div className="text-[10px] mt-2.5 text-center" style={{ color: 'var(--text-4)' }}>
+                    {getPalette(paletteId).name}
+                  </div>
+                </div>
+
                 <button
                   onClick={() => { setMenuOpen(false); onLogout(); }}
-                  className="w-full px-3 py-2.5 text-left text-sm font-semibold flex items-center gap-2 transition hover:opacity-90"
+                  className="w-full px-3 py-2.5 text-left text-sm font-semibold flex items-center gap-2 transition hover:opacity-90 rounded-b-xl"
                   style={{ color: '#EF4444' }}
                   onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                 >
                   <ArrowLeft className="w-3.5 h-3.5" />
-                  Sign out
+                  {authUser?.role === 'demo' ? 'Exit demo' : 'Sign out'}
                 </button>
               </div>
             )}
@@ -1164,7 +1323,7 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
       </div>
 
       <div className="h-1.5 flex">
-        <div className="flex-1" style={{ background: 'linear-gradient(90deg, #E11D74, #EA580C, #D97706, #16A34A, #2563EB, #7C3AED, #E11D74)' }} />
+        <div className="flex-1" style={{ background: 'linear-gradient(90deg, var(--brand-1), var(--brand-2), var(--brand-3), #16A34A, #2563EB, #7C3AED, var(--brand-1))' }} />
       </div>
     </header>
   );
@@ -1192,7 +1351,7 @@ function ThemeToggle({ theme, onClick }) {
       {/* Hint icons in the track */}
       <Sun
         className="absolute w-3 h-3 transition-opacity duration-300"
-        style={{ left: '8px', color: '#D97706', opacity: isDark ? 0.45 : 0 }}
+        style={{ left: '8px', color: 'var(--brand-3)', opacity: isDark ? 0.45 : 0 }}
         strokeWidth={2.5}
       />
       <Moon
@@ -1229,7 +1388,7 @@ function NavBtn({ active, onClick, icon: Icon, label }) {
     <button
       onClick={onClick}
       className="px-3 lg:px-4 py-2 rounded-full text-sm font-semibold flex items-center gap-2 transition-all"
-      style={active ? { background: 'linear-gradient(135deg, #EA580C, #E11D74)', color: '#fff' } : { color: 'var(--text-2)' }}
+      style={active ? { background: 'linear-gradient(135deg, var(--brand-2), var(--brand-1))', color: '#fff' } : { color: 'var(--text-2)' }}
     >
       <Icon className="w-4 h-4" />
       <span className="hidden lg:inline">{label}</span>
@@ -1250,7 +1409,7 @@ function Footer() {
         <span
           className="font-bold tracking-wide"
           style={{
-            background: 'linear-gradient(135deg, #E11D74, #EA580C, #D97706)',
+            background: 'linear-gradient(135deg, var(--brand-1), var(--brand-2), var(--brand-3))',
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
@@ -1434,7 +1593,7 @@ function BottomNav({ screen, setScreen }) {
             <button key={t.id} onClick={() => setScreen(t.id)} className="py-3 flex flex-col items-center gap-1 relative">
               {active && (
                 <div className="absolute top-0 left-1/4 right-1/4 h-0.5 rounded-full"
-                  style={{ background: 'linear-gradient(90deg, #E11D74, #D97706)' }} />
+                  style={{ background: 'linear-gradient(90deg, var(--brand-1), var(--brand-3))' }} />
               )}
               <Icon className="w-5 h-5" strokeWidth={2.5} style={{ color: active ? 'var(--text)' : 'var(--text-4)' }} />
               <span className="text-[11px] font-semibold" style={{ color: active ? 'var(--text)' : 'var(--text-4)' }}>{t.label}</span>
@@ -1575,7 +1734,7 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
       />
 
       {/* PROJECT SECTION */}
-      <Section title="Project Details" accent="#E11D74" icon={Film}>
+      <Section title="Project Details" accent="var(--brand-1)" icon={Film}>
         <div className="grid sm:grid-cols-2 gap-4">
           <Field label="Project / Production" error={errors.project} required>
             <ComboBox
@@ -1588,7 +1747,7 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
                 handleProjectChange(name);
               }}
               emptyHint={projects.length === 0
-                ? <span>No projects yet — type a name or <button type="button" className="underline" onClick={onGoToProjects} style={{ color: '#E11D74' }}>open Projects</button></span>
+                ? <span>No projects yet — type a name or <button type="button" className="underline" onClick={onGoToProjects} style={{ color: 'var(--brand-1)' }}>open Projects</button></span>
                 : null
               }
             />
@@ -1636,7 +1795,7 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
       </Section>
 
       {/* TRANSACTION SECTION */}
-      <Section title="Transaction" accent="#D97706" icon={Receipt}>
+      <Section title="Transaction" accent="var(--brand-3)" icon={Receipt}>
         <div className="grid sm:grid-cols-2 gap-4">
           <Field label="Paid By" error={errors.paidBy} required>
             <ComboBox
@@ -1740,7 +1899,7 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
                   className="relative p-3 rounded-xl border transition-all"
                   style={
                     active
-                      ? { background: 'linear-gradient(135deg, #E11D74, #EA580C)', borderColor: 'transparent', color: '#fff' }
+                      ? { background: 'linear-gradient(135deg, var(--brand-1), var(--brand-2))', borderColor: 'transparent', color: '#fff' }
                       : { background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-2)' }
                   }
                 >
@@ -1796,7 +1955,7 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
           onClick={submit}
           className="w-full py-4 rounded-2xl text-white font-bold text-base shadow-2xl flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] transition-transform"
           style={{
-            background: 'linear-gradient(135deg, #D97706 0%, #EA580C 50%, #E11D74 100%)',
+            background: 'linear-gradient(135deg, var(--brand-3) 0%, var(--brand-2) 50%, var(--brand-1) 100%)',
             boxShadow: '0 20px 40px -10px rgba(225, 29, 116, 0.4)',
           }}
         >
@@ -1978,7 +2137,7 @@ function ComboBox({ value, onChange, options, placeholder, onCreate, createLabel
               type="button"
               onClick={handleCreate}
               className="w-full px-4 py-3 text-left text-sm flex items-center gap-2 border-t font-semibold"
-              style={{ borderColor: 'var(--border)', color: '#E11D74', background: 'var(--surface-3)' }}
+              style={{ borderColor: 'var(--border)', color: 'var(--brand-1)', background: 'var(--surface-3)' }}
             >
               <Plus className="w-4 h-4" />
               Add "<span className="truncate max-w-[180px] inline-block align-bottom">{search.trim()}</span>" as new {createLabel}
@@ -2207,7 +2366,7 @@ function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter }) {
       />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <StatCard label="Total"   value={formatCurrency(totals.total)}   accent="#E11D74" icon={TrendingUp} />
+        <StatCard label="Total"   value={formatCurrency(totals.total)}   accent="var(--brand-1)" icon={TrendingUp} />
         <StatCard label="Paid"    value={formatCurrency(totals.paid)}    accent="#16A34A" icon={CheckCircle2} />
         <StatCard label="Pending" value={formatCurrency(totals.pending)} accent="#CA8A04" icon={Clock} />
         <StatCard label="Bills"   value={totals.count.toString()}        accent="#2563EB" icon={Hash} sub={`${totals.depts} depts`} />
@@ -2305,7 +2464,7 @@ function EmptyState({ onNewBill }) {
       </div>
       <button onClick={onNewBill}
         className="px-6 py-3 rounded-full text-white font-bold text-sm inline-flex items-center gap-2 shadow-lg"
-        style={{ background: 'linear-gradient(135deg, #D97706, #E11D74)' }}>
+        style={{ background: 'linear-gradient(135deg, var(--brand-3), var(--brand-1))' }}>
         <Plus className="w-4 h-4" />
         Add first bill
       </button>
@@ -2515,7 +2674,7 @@ function LedgerCard({ group, view, expanded, onToggle, onDelete }) {
               <div className="text-base sm:text-xl font-bold"
                    style={{
                      fontFamily: '"IBM Plex Mono", monospace',
-                     color: group.closingBalance < 0 ? '#EA580C' : (group.closingBalance > 0 ? '#16A34A' : 'var(--text)'),
+                     color: group.closingBalance < 0 ? 'var(--brand-2)' : (group.closingBalance > 0 ? '#16A34A' : 'var(--text)'),
                    }}>
                 {group.closingBalance < 0 ? '−' : (group.closingBalance > 0 ? '+' : '')}{formatCurrency(Math.abs(group.closingBalance))}
               </div>
@@ -2872,12 +3031,12 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject, embedd
         <>
           {/* Summary cards */}
           <div className="grid grid-cols-3 gap-3 mb-6">
-            <StatCard label="Total Debit"  value={`₹${fmtMoney(totals.debit)}`}  accent="#EA580C" icon={ArrowDownRight} sub="paid out" />
+            <StatCard label="Total Debit"  value={`₹${fmtMoney(totals.debit)}`}  accent="var(--brand-2)" icon={ArrowDownRight} sub="paid out" />
             <StatCard label="Total Credit" value={`₹${fmtMoney(totals.credit)}`} accent="#16A34A" icon={ArrowUpRight}   sub="received" />
             <StatCard
               label="Closing Balance"
               value={`${totals.closing < 0 ? '−' : ''}₹${fmtMoney(Math.abs(totals.closing))}`}
-              accent={totals.closing < 0 ? '#EA580C' : '#16A34A'}
+              accent={totals.closing < 0 ? 'var(--brand-2)' : '#16A34A'}
               icon={Wallet}
               sub={totals.closing < 0 ? 'net paid out' : (totals.closing > 0 ? 'net received' : 'square')}
             />
@@ -2922,7 +3081,7 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject, embedd
                       <Td align="right" mono>{r.debit > 0 ? `₹${fmtMoney(r.debit)}` : '—'}</Td>
                       <Td align="right" mono>{r.credit > 0 ? `₹${fmtMoney(r.credit)}` : '—'}</Td>
                       <Td align="right" mono strong>
-                        <span style={{ color: r.balance < 0 ? '#EA580C' : (r.balance > 0 ? '#16A34A' : 'var(--text)') }}>
+                        <span style={{ color: r.balance < 0 ? 'var(--brand-2)' : (r.balance > 0 ? '#16A34A' : 'var(--text)') }}>
                           {r.balance < 0 ? '−' : ''}₹{fmtMoney(Math.abs(r.balance))}
                         </span>
                       </Td>
@@ -2933,7 +3092,7 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject, embedd
                     <Td align="right" mono strong>₹{fmtMoney(totals.debit)}</Td>
                     <Td align="right" mono strong>₹{fmtMoney(totals.credit)}</Td>
                     <Td align="right" mono strong>
-                      <span style={{ color: totals.closing < 0 ? '#EA580C' : (totals.closing > 0 ? '#16A34A' : 'var(--text)') }}>
+                      <span style={{ color: totals.closing < 0 ? 'var(--brand-2)' : (totals.closing > 0 ? '#16A34A' : 'var(--text)') }}>
                         {totals.closing < 0 ? '−' : ''}₹{fmtMoney(Math.abs(totals.closing))}
                       </span>
                     </Td>
@@ -2973,14 +3132,14 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject, embedd
                   </div>
                   <div>
                     <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Balance</div>
-                    <div className="font-mono text-sm font-bold" style={{ color: r.balance < 0 ? '#EA580C' : (r.balance > 0 ? '#16A34A' : 'var(--text)') }}>
+                    <div className="font-mono text-sm font-bold" style={{ color: r.balance < 0 ? 'var(--brand-2)' : (r.balance > 0 ? '#16A34A' : 'var(--text)') }}>
                       {r.balance < 0 ? '−' : ''}₹{fmtMoney(Math.abs(r.balance))}
                     </div>
                   </div>
                 </div>
               </div>
             ))}
-            <div className="rounded-xl border-2 p-3 mt-3" style={{ borderColor: '#E11D74', background: 'var(--surface)' }}>
+            <div className="rounded-xl border-2 p-3 mt-3" style={{ borderColor: 'var(--brand-1)', background: 'var(--surface)' }}>
               <div className="text-[10px] uppercase tracking-[0.2em] font-bold mb-2" style={{ color: 'var(--text-3)' }}>Totals</div>
               <div className="grid grid-cols-3 gap-2">
                 <div>
@@ -2993,7 +3152,7 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject, embedd
                 </div>
                 <div>
                   <div className="text-[9px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Closing</div>
-                  <div className="font-mono text-sm font-bold" style={{ color: totals.closing < 0 ? '#EA580C' : (totals.closing > 0 ? '#16A34A' : 'var(--text)') }}>
+                  <div className="font-mono text-sm font-bold" style={{ color: totals.closing < 0 ? 'var(--brand-2)' : (totals.closing > 0 ? '#16A34A' : 'var(--text)') }}>
                     {totals.closing < 0 ? '−' : ''}₹{fmtMoney(Math.abs(totals.closing))}
                   </div>
                 </div>
@@ -3061,7 +3220,7 @@ function ProjectsScreen({ projects, bills, onAdd, onUpdate, onDelete, onSyncBill
           <button
             onClick={() => setEditing('new')}
             className="px-4 py-2.5 rounded-full text-white font-bold text-sm inline-flex items-center gap-2 shadow-md"
-            style={{ background: 'linear-gradient(135deg, #D97706, #E11D74)' }}
+            style={{ background: 'linear-gradient(135deg, var(--brand-3), var(--brand-1))' }}
           >
             <Plus className="w-4 h-4" />
             New Project
@@ -3073,9 +3232,9 @@ function ProjectsScreen({ projects, bills, onAdd, onUpdate, onDelete, onSyncBill
         <button
           onClick={onOpenSettings}
           className="w-full mb-4 p-3 rounded-xl border-2 border-dashed flex items-center gap-3 text-left transition hover:opacity-90"
-          style={{ borderColor: '#EA580C66', background: 'rgba(234, 88, 12, 0.06)' }}
+          style={{ borderColor: 'var(--brand-2)', background: 'var(--surface-2)', opacity: 0.95 }}
         >
-          <Cloud className="w-5 h-5 flex-shrink-0" style={{ color: '#EA580C' }} />
+          <Cloud className="w-5 h-5 flex-shrink-0" style={{ color: 'var(--brand-2)' }} />
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
               Set up Drive sync to push bills to Google Sheets
@@ -3098,7 +3257,7 @@ function ProjectsScreen({ projects, bills, onAdd, onUpdate, onDelete, onSyncBill
           </div>
           <button onClick={() => setEditing('new')}
             className="px-6 py-3 rounded-full text-white font-bold text-sm inline-flex items-center gap-2 shadow-lg"
-            style={{ background: 'linear-gradient(135deg, #D97706, #E11D74)' }}>
+            style={{ background: 'linear-gradient(135deg, var(--brand-3), var(--brand-1))' }}>
             <Plus className="w-4 h-4" />
             Create first project
           </button>
@@ -3298,7 +3457,7 @@ function ProjectModal({ project, onClose, onSave, onDelete, existingNames }) {
           <div className="h-1.5">
             <div
               className="h-full"
-              style={{ background: 'linear-gradient(90deg, #E11D74, #EA580C, #D97706, #16A34A, #2563EB, #7C3AED)' }}
+              style={{ background: 'linear-gradient(90deg, var(--brand-1), var(--brand-2), var(--brand-3), #16A34A, #2563EB, #7C3AED)' }}
             />
           </div>
           <div className="p-5 sm:p-6 pb-4 flex items-center justify-between border-b" style={{ borderColor: 'var(--border-soft)' }}>
@@ -3411,7 +3570,7 @@ function ProjectModal({ project, onClose, onSave, onDelete, existingNames }) {
             <button
               onClick={handleSave}
               className="px-5 py-2.5 rounded-xl text-white font-bold text-sm shadow-md transition hover:scale-[1.02] active:scale-95"
-              style={{ background: 'linear-gradient(135deg, #D97706, #EA580C, #E11D74)' }}
+              style={{ background: 'linear-gradient(135deg, var(--brand-3), var(--brand-2), var(--brand-1))' }}
             >
               Save
             </button>
@@ -3425,7 +3584,7 @@ function ProjectModal({ project, onClose, onSave, onDelete, existingNames }) {
 // ============================================================
 // SETTINGS / CONFIG SCREEN (admin)
 // ============================================================
-function SettingsScreen({ settings, onUpdate, projects, onUpdateProject, onRefresh, onPushRow, onSyncProject, onLogout, authUser }) {
+function SettingsScreen({ settings, onUpdate, projects, onUpdateProject, onRefresh, onPushRow, onSyncProject, onLogout, authUser, paletteId, onPaletteChange }) {
   const [scriptUrlDraft, setScriptUrlDraft] = useState(settings.scriptUrl || '');
   const [folderDraft, setFolderDraft] = useState(settings.parentFolderId || '');
   const [savedFlash, setSavedFlash] = useState(false);
@@ -3561,7 +3720,7 @@ function SettingsScreen({ settings, onUpdate, projects, onUpdateProject, onRefre
             <button
               onClick={saveSettings}
               className="px-5 py-2.5 rounded-xl text-white font-bold text-sm shadow-md transition hover:scale-[1.02] active:scale-95"
-              style={{ background: 'linear-gradient(135deg, #D97706, #EA580C, #E11D74)' }}
+              style={{ background: 'linear-gradient(135deg, var(--brand-3), var(--brand-2), var(--brand-1))' }}
             >
               Save Settings
             </button>
@@ -3612,6 +3771,27 @@ function SettingsScreen({ settings, onUpdate, projects, onUpdateProject, onRefre
         )}
         <div className="text-[11px] mt-3 leading-relaxed pt-3 border-t" style={{ color: 'var(--text-3)', borderColor: 'var(--border)' }}>
           Tap a row's Sync button to auto-create or refresh the folder + sheet. To manually override a stale link, click <Pencil className="w-3 h-3 inline" /> on a row, paste the new URL, and Save — it pushes straight to the Config sheet.
+        </div>
+      </Section>
+
+      <Section title="Appearance" accent="var(--brand-2)" icon={Palette}>
+        <div className="text-[11px] mb-3" style={{ color: 'var(--text-3)' }}>
+          Pick a color theme. Affects accents, gradients, and badges across every screen — applies instantly and persists.
+        </div>
+        <PalettePicker
+          current={paletteId}
+          onChange={onPaletteChange}
+          columns={6}
+        />
+        <div className="text-xs mt-3 pt-3 border-t flex items-center gap-2" style={{ borderColor: 'var(--border)', color: 'var(--text-2)' }}>
+          <span className="text-[10px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>Current:</span>
+          <span className="font-bold">{getPalette(paletteId).name}</span>
+          <div className="flex items-center gap-1 ml-auto">
+            <div className="w-3 h-3 rounded-sm" style={{ background: 'var(--brand-1)' }} />
+            <div className="w-3 h-3 rounded-sm" style={{ background: 'var(--brand-2)' }} />
+            <div className="w-3 h-3 rounded-sm" style={{ background: 'var(--brand-3)' }} />
+            <div className="w-3 h-3 rounded-sm" style={{ background: 'var(--brand-4)' }} />
+          </div>
         </div>
       </Section>
 
@@ -3668,13 +3848,13 @@ function SettingsScreen({ settings, onUpdate, projects, onUpdateProject, onRefre
         )}
       </Section>
 
-      <Section title="Account" accent="#E11D74" icon={User}>
+      <Section title="Account" accent="var(--brand-1)" icon={User}>
         <div className="text-sm space-y-3" style={{ color: 'var(--text-2)' }}>
           <div className="flex items-center gap-2">
             <span style={{ color: 'var(--text-3)' }}>Signed in as:</span>
             <span className="font-mono">{authUser?.email}</span>
             <span className="text-[10px] px-1.5 py-0.5 rounded font-bold"
-                  style={{ background: 'rgba(225,29,116,0.15)', color: '#E11D74' }}>
+                  style={{ background: 'rgba(225,29,116,0.15)', color: 'var(--brand-1)' }}>
               ADMIN
             </span>
           </div>
@@ -3695,7 +3875,7 @@ function SettingsScreen({ settings, onUpdate, projects, onUpdateProject, onRefre
         <div className="text-sm space-y-2" style={{ color: 'var(--text-2)' }}>
           <div><span style={{ color: 'var(--text-3)' }}>Brand:</span> {BRAND.name}</div>
           <div><span style={{ color: 'var(--text-3)' }}>Storage:</span> Browser (window.storage) — bills, projects, parties, settings, theme</div>
-          <div><span style={{ color: 'var(--text-3)' }}>Backend:</span> {settings.scriptUrl ? <span style={{ color: '#16A34A' }}>Configured ✓</span> : <span style={{ color: '#EA580C' }}>Not configured</span>}</div>
+          <div><span style={{ color: 'var(--text-3)' }}>Backend:</span> {settings.scriptUrl ? <span style={{ color: '#16A34A' }}>Configured ✓</span> : <span style={{ color: 'var(--brand-2)' }}>Not configured</span>}</div>
         </div>
       </Section>
     </div>
@@ -3808,7 +3988,7 @@ function ConfigRow({ project, onPush, onSync, disabled }) {
             </button>
             <button onClick={save} disabled={disabled}
                     className="px-3 py-1.5 rounded-lg text-xs font-bold text-white transition disabled:opacity-50"
-                    style={{ background: 'linear-gradient(135deg, #D97706, #E11D74)' }}>
+                    style={{ background: 'linear-gradient(135deg, var(--brand-3), var(--brand-1))' }}>
               Save to Drive
             </button>
           </div>
