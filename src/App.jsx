@@ -101,7 +101,7 @@ const PROJECT_COLORS = [
 // ============================================================
 const DRIVE_PARENT_FOLDER_ID = '1Q-eSFalmrtrzZVh0Ukgrl08S9RT8bF2G';
 // Seed value for the Apps Script URL. Set to '' if you don't want a default.
-const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyekCloY9MckwjReJnTvlOCcmu8kCvB6Kr-4aCAYR6GKdHt1GiXDEr-A8tf7X1TbRH3JA/exec';
+const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyOB0FXVnajr8wU1YOKZAewXWOZPxJjqQbxXW9sMExgjCSykK8iKg99vw0-zN9K2hQV-A/exec';
 
 // ============================================================
 // AUTHORIZED ADMIN CREDENTIALS (hard-coded soft gate)
@@ -455,10 +455,37 @@ function DemoBanner({ onSignIn, onExit, onContact }) {
 // Lead-capture form for demo viewers. Posts to the Apps Script
 // `submitLead` action, which appends to a Leads tab in the Config sheet.
 // ============================================================
+// Country codes for the contact form. Curated for the markets a cine
+// production might care about; "+91 IN" lands first since that's home base.
+const CONTACT_COUNTRY_CODES = [
+  { code: '+91',  label: 'IN' },
+  { code: '+1',   label: 'US' },
+  { code: '+44',  label: 'UK' },
+  { code: '+971', label: 'AE' },
+  { code: '+65',  label: 'SG' },
+  { code: '+61',  label: 'AU' },
+  { code: '+49',  label: 'DE' },
+  { code: '+33',  label: 'FR' },
+  { code: '+81',  label: 'JP' },
+  { code: '+86',  label: 'CN' },
+  { code: '+82',  label: 'KR' },
+  { code: '+880', label: 'BD' },
+  { code: '+94',  label: 'LK' },
+  { code: '+977', label: 'NP' },
+  { code: '+60',  label: 'MY' },
+  { code: '+66',  label: 'TH' },
+  { code: '+20',  label: 'EG' },
+  { code: '+27',  label: 'ZA' },
+  { code: '+55',  label: 'BR' },
+  { code: '+52',  label: 'MX' },
+];
+
 function ContactUsModal({ open, onClose, onSubmit }) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
+  const [countryCode, setCountryCode] = useState('+91');
+  const [phoneNumber, setPhoneNumber] = useState('');
+  const [comments, setComments] = useState('');
   const [preferredTime, setPreferredTime] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -467,7 +494,8 @@ function ContactUsModal({ open, onClose, onSubmit }) {
   // Reset form state each time the modal opens fresh
   useEffect(() => {
     if (open) {
-      setName(''); setEmail(''); setPhone(''); setPreferredTime('');
+      setName(''); setEmail(''); setCountryCode('+91');
+      setPhoneNumber(''); setComments(''); setPreferredTime('');
       setBusy(false); setErr(''); setSent(false);
     }
   }, [open]);
@@ -484,17 +512,34 @@ function ContactUsModal({ open, onClose, onSubmit }) {
 
   const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
 
+  // Allow only digits in the phone number input
+  const onPhoneChange = (raw) => setPhoneNumber(raw.replace(/\D/g, '').slice(0, 15));
+
   const submit = async (e) => {
     if (e?.preventDefault) e.preventDefault();
     setErr('');
-    if (!name.trim()) return setErr('Please enter your name');
-    if (!email.trim() || !validEmail(email)) return setErr('Please enter a valid email');
+    const cleanName  = name.trim();
+    const cleanPhone = phoneNumber.replace(/\D/g, '');
+    const cleanEmail = email.trim();
+
+    if (!cleanName) return setErr('Please enter your name');
+    if (!countryCode) return setErr('Please select a country code');
+    if (!cleanPhone) return setErr('Please enter your contact number');
+    if (cleanPhone.length < 6 || cleanPhone.length > 15) {
+      return setErr('Contact number should be 6–15 digits');
+    }
+    if (cleanEmail && !validEmail(cleanEmail)) {
+      return setErr('Email looks invalid — leave blank if you prefer not to share');
+    }
+
     setBusy(true);
     try {
       const r = await onSubmit({
-        name: name.trim(),
-        email: email.trim(),
-        phone: phone.trim(),
+        name: cleanName,
+        email: cleanEmail,
+        countryCode,
+        phoneNumber: cleanPhone,
+        comments: comments.trim(),
         preferredTime: preferredTime.trim(),
         source: 'demo',
       });
@@ -596,20 +641,43 @@ function ContactUsModal({ open, onClose, onSubmit }) {
               />
 
               <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
-                Contact No
+                Contact No <span style={{ color: '#EF4444' }}>*</span>
               </label>
-              <input
-                type="tel"
-                inputMode="tel"
-                value={phone}
-                onChange={e => setPhone(e.target.value)}
-                placeholder="+91 …"
-                className={inputBaseClasses + ' mb-3'}
-                style={inputStyle}
-              />
+              <div className="flex gap-2 mb-3">
+                <select
+                  value={countryCode}
+                  onChange={e => setCountryCode(e.target.value)}
+                  className={inputBaseClasses + ' appearance-none cursor-pointer'}
+                  style={{
+                    ...inputStyle,
+                    width: '110px',
+                    flexShrink: 0,
+                    paddingRight: '28px',
+                    backgroundImage: 'url("data:image/svg+xml;charset=UTF-8,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'10\' height=\'10\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'currentColor\' stroke-width=\'2.5\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'/%3E%3C/svg%3E")',
+                    backgroundRepeat: 'no-repeat',
+                    backgroundPosition: 'right 10px center',
+                    fontFamily: '"IBM Plex Mono", monospace',
+                  }}
+                >
+                  {CONTACT_COUNTRY_CODES.map(c => (
+                    <option key={c.code} value={c.code}>{c.code} {c.label}</option>
+                  ))}
+                </select>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={phoneNumber}
+                  onChange={e => onPhoneChange(e.target.value)}
+                  placeholder="9876543210"
+                  maxLength={15}
+                  className={inputBaseClasses + ' flex-1 min-w-0'}
+                  style={{ ...inputStyle, fontFamily: '"IBM Plex Mono", monospace' }}
+                />
+              </div>
 
               <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
-                Mail ID <span style={{ color: '#EF4444' }}>*</span>
+                Mail ID <span className="font-medium normal-case tracking-normal" style={{ color: 'var(--text-4)' }}>(optional)</span>
               </label>
               <input
                 type="email"
@@ -620,6 +688,18 @@ function ContactUsModal({ open, onClose, onSubmit }) {
                 onChange={e => setEmail(e.target.value)}
                 placeholder="you@production.com"
                 className={inputBaseClasses + ' mb-3'}
+                style={inputStyle}
+              />
+
+              <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                Comments / Details
+              </label>
+              <textarea
+                value={comments}
+                onChange={e => setComments(e.target.value)}
+                placeholder="Project type, team size, what you're hoping to use CineLedger for…"
+                rows={3}
+                className={inputBaseClasses + ' resize-none mb-3'}
                 style={inputStyle}
               />
 
