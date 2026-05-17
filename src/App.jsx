@@ -6,7 +6,7 @@ import {
   TrendingUp, Hash, Briefcase, CheckCircle2, Clock, AlertCircle,
   Image as ImageIcon, FileIcon, Receipt, ArrowLeft, Sun, Moon,
   RefreshCw, Pencil, FolderOpen,
-  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check, Palette
+  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check, Palette, Mail
 } from 'lucide-react';
 
 
@@ -403,7 +403,7 @@ function PalettePicker({ current, onChange, columns = 6 }) {
 }
 
 // Banner shown while a demo session is active
-function DemoBanner({ onSignIn, onExit }) {
+function DemoBanner({ onSignIn, onExit, onContact }) {
   return (
     <div
       className="px-3 sm:px-4 py-2 flex items-center justify-between gap-2 text-white text-xs sm:text-sm"
@@ -421,6 +421,19 @@ function DemoBanner({ onSignIn, onExit }) {
         </span>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
+        {onContact && (
+          <button
+            onClick={onContact}
+            className="px-2.5 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition flex items-center gap-1"
+            style={{ background: 'rgba(0,0,0,0.25)', color: '#fff' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,0,0,0.4)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,0,0,0.25)'}
+          >
+            <Mail className="w-3 h-3" />
+            <span className="hidden sm:inline">Contact Us</span>
+            <span className="sm:hidden">Contact</span>
+          </button>
+        )}
         {onSignIn && (
           <button
             onClick={onSignIn}
@@ -432,6 +445,221 @@ function DemoBanner({ onSignIn, onExit }) {
             Sign In
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// CONTACT US MODAL
+// Lead-capture form for demo viewers. Posts to the Apps Script
+// `submitLead` action, which appends to a Leads tab in the Config sheet.
+// ============================================================
+function ContactUsModal({ open, onClose, onSubmit }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [preferredTime, setPreferredTime] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const [sent, setSent] = useState(false);
+
+  // Reset form state each time the modal opens fresh
+  useEffect(() => {
+    if (open) {
+      setName(''); setEmail(''); setPhone(''); setPreferredTime('');
+      setBusy(false); setErr(''); setSent(false);
+    }
+  }, [open]);
+
+  // Body scroll lock while open
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  if (!open) return null;
+
+  const validEmail = (e) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e.trim());
+
+  const submit = async (e) => {
+    if (e?.preventDefault) e.preventDefault();
+    setErr('');
+    if (!name.trim()) return setErr('Please enter your name');
+    if (!email.trim() || !validEmail(email)) return setErr('Please enter a valid email');
+    setBusy(true);
+    try {
+      const r = await onSubmit({
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim(),
+        preferredTime: preferredTime.trim(),
+        source: 'demo',
+      });
+      if (r?.ok) {
+        setSent(true);
+      } else {
+        setErr(r?.error || 'Could not send. Please try again.');
+      }
+    } catch (e) {
+      setErr(e?.message || 'Could not send. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 fade-in flex items-stretch sm:items-center justify-center sm:p-6"
+      style={{ background: 'var(--overlay)' }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full sm:max-w-md sm:max-h-[90vh] h-full sm:h-auto sm:rounded-3xl flex flex-col"
+        style={{
+          background: 'var(--surface-elevated)',
+          boxShadow: 'var(--shadow-lg)',
+          border: '1px solid var(--border-strong)',
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header — brand gradient so it pops in demo */}
+        <div
+          className="flex-shrink-0 px-5 py-4 sm:rounded-t-3xl flex items-center justify-between text-white"
+          style={{ background: 'var(--brand-gradient)' }}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: 'rgba(255,255,255,0.2)' }}>
+              <Mail className="w-4 h-4" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-[0.2em] opacity-80 font-bold">Get in touch</div>
+              <div className="text-base font-bold leading-tight">Let's talk CineLedger</div>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center transition"
+            style={{ background: 'rgba(0,0,0,0.2)' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(0,0,0,0.35)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'rgba(0,0,0,0.2)'}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Body — scrollable */}
+        <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5">
+          {sent ? (
+            <div className="text-center py-10">
+              <div
+                className="w-14 h-14 mx-auto mb-4 rounded-full flex items-center justify-center"
+                style={{ background: 'rgba(22, 163, 74, 0.12)' }}
+              >
+                <CheckCircle2 className="w-7 h-7" style={{ color: '#16A34A' }} />
+              </div>
+              <div className="text-lg font-bold mb-1" style={{ color: 'var(--text)' }}>
+                Got it — thanks!
+              </div>
+              <div className="text-sm mb-6" style={{ color: 'var(--text-3)' }}>
+                We'll reach out to you at your preferred time.
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="px-5 py-2 rounded-xl text-sm font-bold text-white"
+                style={{ background: 'var(--brand-gradient)' }}
+              >
+                Close
+              </button>
+            </div>
+          ) : (
+            <form onSubmit={submit}>
+              <p className="text-sm mb-5" style={{ color: 'var(--text-3)' }}>
+                Building something cinematic and want CineLedger for your production?
+                Drop your details and we'll be in touch.
+              </p>
+
+              <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                Name <span style={{ color: '#EF4444' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Your name"
+                autoFocus
+                className={inputBaseClasses + ' mb-3'}
+                style={inputStyle}
+              />
+
+              <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                Contact No
+              </label>
+              <input
+                type="tel"
+                inputMode="tel"
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                placeholder="+91 …"
+                className={inputBaseClasses + ' mb-3'}
+                style={inputStyle}
+              />
+
+              <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                Mail ID <span style={{ color: '#EF4444' }}>*</span>
+              </label>
+              <input
+                type="email"
+                inputMode="email"
+                autoCapitalize="off"
+                autoCorrect="off"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="you@production.com"
+                className={inputBaseClasses + ' mb-3'}
+                style={inputStyle}
+              />
+
+              <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
+                Preferred Date &amp; Time to Reach Out
+              </label>
+              <input
+                type="datetime-local"
+                value={preferredTime}
+                onChange={e => setPreferredTime(e.target.value)}
+                className={inputBaseClasses + ' mb-4'}
+                style={inputStyle}
+              />
+
+              {err && (
+                <div
+                  className="mb-4 px-3 py-2 rounded-lg text-xs flex items-start gap-2"
+                  style={{ background: 'rgba(239,68,68,0.10)', color: '#B91C1C' }}
+                >
+                  <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                  <span>{err}</span>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={busy}
+                className="w-full py-3 rounded-xl text-white font-bold text-sm shadow-md transition hover:scale-[1.01] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                style={{ background: 'var(--brand-gradient)' }}
+              >
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                {busy ? 'Sending…' : 'Send'}
+              </button>
+
+              <div className="text-[11px] text-center mt-3" style={{ color: 'var(--text-4)' }}>
+                Your details are sent directly to the CineLedger team.
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -477,6 +705,10 @@ const driveAdapter = {
   deleteProject(scriptUrl, projectName)        { return this.call(scriptUrl, 'deleteProject', { projectName }); },
   syncProject(scriptUrl, projectName, prefix, bills) {
     return this.call(scriptUrl, 'syncProject', { projectName, prefix, bills });
+  },
+  submitLead(scriptUrl, lead) {
+    // Lead capture from demo viewers. Writes to a "Leads" tab in the Config sheet.
+    return this.call(scriptUrl, 'submitLead', { lead });
   },
 };
 
@@ -1158,6 +1390,24 @@ export default function App() {
     enterDemoMode();
   };
 
+  // Contact Us — lead capture from demo viewers
+  const [contactOpen, setContactOpen] = useState(false);
+  const submitLead = async (lead) => {
+    // Always send to whichever Apps Script URL is configured (admin's setting, or
+    // the bundled default). Falls back gracefully if the script can't be reached.
+    const url = (settings && settings.scriptUrl) || DEFAULT_SCRIPT_URL;
+    if (!url) {
+      return { ok: false, error: 'No destination configured. Please email us directly.' };
+    }
+    try {
+      await driveAdapter.submitLead(url, lead);
+      return { ok: true };
+    } catch (e) {
+      console.error('[CineLedger] Lead submit failed:', e);
+      return { ok: false, error: (e?.message || 'Network error') };
+    }
+  };
+
   const logout = () => {
     // Going back to demo, not to login screen
     dataLayer.set('cine-auth', null);
@@ -1205,7 +1455,7 @@ export default function App() {
         <LoginScreen onLogin={tryLogin} onStartDemo={startDemo} theme={theme} toggleTheme={toggleTheme} />
       ) : (
         <>
-          {isDemo && <DemoBanner onSignIn={() => setWantsLogin(true)} onExit={logout} />}
+          {isDemo && <DemoBanner onSignIn={() => setWantsLogin(true)} onExit={logout} onContact={() => setContactOpen(true)} />}
           <Header
             screen={screen}
             setScreen={setScreen}
@@ -1295,6 +1545,12 @@ export default function App() {
               </div>
             </div>
           )}
+
+          <ContactUsModal
+            open={contactOpen}
+            onClose={() => setContactOpen(false)}
+            onSubmit={submitLead}
+          />
         </>
       )}
     </div>
