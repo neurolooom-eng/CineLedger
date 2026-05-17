@@ -497,24 +497,22 @@ const TOUR_STOPS = [
   {
     id: 'ledger',
     screen: 'ledger',
-    ledgerView: 'table',
     selector: '[data-tour="ledger-views"]',
     placement: 'bottom',
-    title: 'Every transaction. Four ways.',
-    body: 'Table for the chronology. Books for the running balance. Individual for per-person ledgers. Department for browsing by category.',
+    title: 'Every transaction. Three ways.',
+    body: 'Books for the running balance. Individual for per-person ledgers. Department for browsing by category.',
   },
   {
     id: 'new-bill',
-    screen: 'form',
+    screen: 'bills',
     selector: '[data-tour="new-bill-card"]',
-    placement: 'right',
+    placement: 'bottom',
     title: 'Thirty seconds to log a bill.',
-    body: 'Auto-numbered. Party autocomplete. Attachments inline. Built for the chaos of set.',
+    body: 'Hit "+ New Bill". A drawer slides in. Auto-numbered. Party autocomplete. Attachments inline. Done.',
   },
   {
     id: 'drive-sync',
     screen: 'ledger',
-    ledgerView: 'table',
     selectFirstProject: true,
     selector: '[data-tour="project-selector"]',
     placement: 'bottom',
@@ -1338,7 +1336,7 @@ function FontLoader() {
 // MAIN APP
 // ============================================================
 export default function App() {
-  const [screen, setScreen] = useState('form');
+  const [screen, setScreen] = useState('dashboard');
   const [bills, setBills] = useState([]);
   const [projects, setProjects] = useState([]);
   const [parties, setParties] = useState([]);
@@ -1422,7 +1420,6 @@ export default function App() {
   useEffect(() => {
     if (!loaded) return;
     if (!authUser || authUser.role !== 'admin') return;
-    if (!settings.scriptUrl) return;
 
     let lastRun = 0;
     const REFRESH_COOLDOWN_MS = 30 * 1000; // at most once every 30s
@@ -1441,7 +1438,7 @@ export default function App() {
       window.removeEventListener('focus', tryRefresh);
       document.removeEventListener('visibilitychange', tryRefresh);
     };
-  }, [loaded, authUser, settings.scriptUrl]);
+  }, [loaded, authUser]);
 
   // Strip base64 data + blob previews from attachments before writing to localStorage.
   // The base64 only exists for one purpose — upload to Drive — and is huge. After
@@ -1495,15 +1492,37 @@ export default function App() {
       if (!opts.silent) flashToast('success', 'Synced (demo)');
       return { ok: true, billsSynced: 0, attachmentsUploaded: {} };
     }
-    if (!settings.scriptUrl) {
-      if (!opts.silent) flashToast('info', 'Set the Apps Script URL in Settings first');
-      return { ok: false };
-    }
     const sourceBills = opts.billsOverride || bills;
     patchProject(projectId, { driveStatus: 'syncing', driveError: null });
     const projectBills = sourceBills.filter(b => b.project && b.project.toLowerCase() === project.name.toLowerCase());
+    // Always use the bundled DEFAULT_SCRIPT_URL — no more stale settings.scriptUrl
+    const url = DEFAULT_SCRIPT_URL;
+    // Diagnostic log — answers "did the frontend actually send attachment data?"
+    // Defensively wrapped because if storage ever has malformed bills the logging
+    // shouldn't be what kills the sync.
     try {
-      const r = await driveAdapter.syncProject(settings.scriptUrl, project.name, project.prefix, projectBills);
+      if (typeof console !== 'undefined') {
+        const attachSummary = projectBills.map(b => {
+          const atts = Array.isArray(b.attachments) ? b.attachments : [];
+          return {
+            billNo: b.billNumber,
+            attachCount: atts.length,
+            attachWithData: atts.filter(a => a && (a.data || (typeof a.preview === 'string' && a.preview.startsWith('data:')))).length,
+            attachAlreadyUploaded: atts.filter(a => a && a.driveUrl).length,
+          };
+        });
+        console.info('[CineLedger] syncProject →', url, '· project:', project.name, '· bills:', projectBills.length, '· attach summary:', attachSummary);
+      }
+    } catch (logErr) {
+      console.warn('[CineLedger] (diagnostic log failed, continuing)', logErr);
+    }
+    try {
+      const r = await driveAdapter.syncProject(url, project.name, project.prefix, projectBills);
+      try {
+        console.info('[CineLedger] syncProject response · version:', r.version || '(none — old deployment)',
+                     '· billsSynced:', r.billsSynced, '· attachmentsUploaded:', r.attachmentsUploaded,
+                     '· attachmentErrors:', r.attachmentErrors);
+      } catch (_) {}
       patchProject(projectId, {
         driveStatus: 'synced',
         driveFolderId: r.folderId,
@@ -1554,8 +1573,10 @@ export default function App() {
 
   // Pull the latest Config-sheet state into local projects (matches by name)
   const refreshConfigFromDrive = async (opts = {}) => {
-    if (!settings.scriptUrl) {
-      if (!opts.silent) flashToast('info', 'Set the Apps Script URL in Settings first');
+    // Always hit the bundled URL — see comment in syncProjectBills
+    const url = DEFAULT_SCRIPT_URL;
+    if (!url) {
+      if (!opts.silent) flashToast('info', 'Apps Script URL not bundled in this build');
       return { ok: false };
     }
     // Allow the caller to pass an explicit project list (e.g. from the just-loaded
@@ -1563,7 +1584,7 @@ export default function App() {
     // the closure `projects` for the normal Settings → Refresh button.
     const baseProjects = Array.isArray(opts.projectsOverride) ? opts.projectsOverride : projects;
     try {
-      const r = await driveAdapter.getConfig(settings.scriptUrl);
+      const r = await driveAdapter.getConfig(url);
       const cfgRows = Array.isArray(r.projects) ? r.projects : [];
       const localByName = new Map(baseProjects.map(p => [p.name.toLowerCase(), p]));
 
@@ -1628,12 +1649,9 @@ export default function App() {
 
   // Push a manually-edited config row to Drive (admin override)
   const pushConfigRow = async (row) => {
-    if (!settings.scriptUrl) {
-      flashToast('info', 'Set the Apps Script URL in Settings first');
-      return { ok: false };
-    }
+    const url = DEFAULT_SCRIPT_URL;
     try {
-      await driveAdapter.updateConfig(settings.scriptUrl, row);
+      await driveAdapter.updateConfig(url, row);
       // mirror locally
       const proj = projects.find(p => p.name.toLowerCase() === row.name.toLowerCase());
       if (proj) {
@@ -1731,13 +1749,18 @@ export default function App() {
     nextParties = addPartyIfNew(bill.paidBy, nextParties);
     nextParties = addPartyIfNew(bill.paidTo, nextParties);
 
-    const newBill = { ...bill, id: uid(), createdAt: new Date().toISOString() };
-    const nextBills = [newBill, ...bills];
+    const isEdit = Boolean(bill.id);
+    const newBill = isEdit
+      ? { ...bill }  // updating: preserve existing id + createdAt + createdBy
+      : { ...bill, id: uid(), createdAt: new Date().toISOString(), createdBy: authUser?.email || '' };
+    const nextBills = isEdit
+      ? bills.map(b => b.id === bill.id ? { ...b, ...newBill, updatedAt: new Date().toISOString() } : b)
+      : [newBill, ...bills];
     persistBills(nextBills);
-    flashToast('success', 'Bill saved · syncing to Drive…');
+    flashToast('success', isEdit ? 'Bill updated · syncing…' : 'Bill saved · syncing to Drive…');
 
-    // Auto-sync — we already have billProject in hand, no lookup needed.
-    if (settings.scriptUrl && billProject) {
+    // Auto-sync — we always have a bundled DEFAULT_SCRIPT_URL, so just go.
+    if (billProject) {
       syncProjectBills(billProject.id, {
         silent: true,
         billsOverride: nextBills,
@@ -1748,9 +1771,6 @@ export default function App() {
           else if (r && r.error) flashToast('info', 'Auto-sync failed — open Projects to retry');
         })
         .catch(e => console.warn('Auto-sync failed:', e));
-    } else if (!settings.scriptUrl) {
-      // No Drive backend configured — let the user know once.
-      flashToast('info', 'Add an Apps Script URL in Settings to enable auto-sync');
     }
   };
 
@@ -1801,13 +1821,31 @@ export default function App() {
       setAuthUser(user);
       dataLayer.set('cine-auth', user);
       setWantsLogin(false);
-      // Coming from demo — swap in the real admin data, then try to recover from Drive
-      // if the local cache is empty (fresh browser, wiped storage, etc.).
+      // Coming from demo — swap in the real admin data, then refresh from Drive
+      // (recovers projects if local cache is empty) and force-sync every project
+      // so the bills/attachments we see locally match the latest Drive state.
       (async () => {
         const loadedProjects = await reloadRealData();
-        if (loadedProjects.length === 0 && settings.scriptUrl) {
+        let projectsToSync = loadedProjects;
+        if (loadedProjects.length === 0) {
           flashToast('info', 'Local cache empty — recovering from Drive…');
-          await refreshConfigFromDrive({ projectsOverride: [], silent: false });
+          const r = await refreshConfigFromDrive({ projectsOverride: [], silent: false });
+          projectsToSync = (r && Array.isArray(r.projects)) ? r.projects : [];
+        } else {
+          // Even when we have local data, pull the latest config so any project
+          // added on another device shows up. Silent — no toast.
+          const r = await refreshConfigFromDrive({ silent: true });
+          if (r && Array.isArray(r.projects)) projectsToSync = r.projects;
+        }
+        if (projectsToSync.length > 0) {
+          flashToast('info', `Syncing ${projectsToSync.length} project${projectsToSync.length === 1 ? '' : 's'}…`);
+          // Sync each project in parallel. Each call is idempotent and silent.
+          const results = await Promise.allSettled(
+            projectsToSync.map(p => syncProjectBills(p.id, { silent: true, projectOverride: p }))
+          );
+          const failed = results.filter(r => r.status === 'rejected' || (r.value && !r.value.ok)).length;
+          if (failed === 0) flashToast('success', `All ${projectsToSync.length} project${projectsToSync.length === 1 ? '' : 's'} in sync`);
+          else flashToast('info', `${projectsToSync.length - failed}/${projectsToSync.length} synced · ${failed} failed`);
         }
       })();
       return { ok: true };
@@ -1996,15 +2034,17 @@ export default function App() {
           )}
 
           <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 pb-8 pt-4 sm:pt-6 relative z-10">
-            {screen === 'form' ? (
-              <BillForm
-                onSave={saveBill}
-                goToLedger={() => setScreen('ledger')}
+            {screen === 'bills' || screen === 'form' ? (
+              <BillsScreen
+                bills={bills}
                 projects={visibleProjects}
                 parties={parties}
-                bills={bills}
+                projectFilter={selectedProjectId ? visibleProjects.find(p => p.id === selectedProjectId) : null}
+                onSave={saveBill}
+                onSaveAndView={(b) => { saveBill(b); }}  /* "Save & View" stays on Bills screen — already showing the table */
                 onCreateProject={addProject}
                 onGoToProjects={() => setScreen('projects')}
+                onDelete={deleteBill}
                 defaultProjectName={selectedProjectId ? (visibleProjects.find(p => p.id === selectedProjectId)?.name || '') : ''}
               />
             ) : screen === 'dashboard' ? (
@@ -2018,7 +2058,7 @@ export default function App() {
                 bills={bills}
                 projects={visibleProjects}
                 onDelete={deleteBill}
-                onNewBill={() => setScreen('form')}
+                onNewBill={() => setScreen('bills')}
                 projectFilter={selectedProjectId ? visibleProjects.find(p => p.id === selectedProjectId) : null}
                 forceView={tourLedgerView}
               />
@@ -2158,8 +2198,8 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
             className="hidden sm:flex items-center gap-1 rounded-full p-1 border"
             style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}
           >
-            <NavBtn active={screen === 'form'}      onClick={() => setScreen('form')}      icon={Plus}       label="New Bill" />
-            <NavBtn active={screen === 'ledger'}    onClick={() => setScreen('ledger')}    icon={Wallet}     label="Ledger" />
+            <NavBtn active={screen === 'bills' || screen === 'form'} onClick={() => setScreen('bills')} icon={Wallet}     label="Bills" />
+            <NavBtn active={screen === 'ledger'}    onClick={() => setScreen('ledger')}    icon={FileText}   label="Ledger" />
             <NavBtn active={screen === 'dashboard'} onClick={() => setScreen('dashboard')} icon={TrendingUp} label="Dashboard" data-tour="dashboard-nav" />
             <NavBtn active={screen === 'projects'}  onClick={() => setScreen('projects')}  icon={FolderOpen} label="Projects" />
           </nav>
@@ -2548,9 +2588,9 @@ function DriveStatusBadge({ project, small }) {
 // ============================================================
 function BottomNav({ screen, setScreen }) {
   const items = [
-    { id: 'form',      icon: Plus,       label: 'New Bill' },
-    { id: 'ledger',    icon: Wallet,     label: 'Ledger' },
     { id: 'dashboard', icon: TrendingUp, label: 'Dashboard' },
+    { id: 'bills',     icon: Wallet,     label: 'Bills' },
+    { id: 'ledger',    icon: FileText,   label: 'Ledger' },
     { id: 'projects',  icon: FolderOpen, label: 'Projects' },
   ];
   return (
@@ -2560,7 +2600,7 @@ function BottomNav({ screen, setScreen }) {
     >
       <div className="grid grid-cols-4">
         {items.map(t => {
-          const active = screen === t.id;
+          const active = screen === t.id || (t.id === 'bills' && screen === 'form');
           const Icon = t.icon;
           return (
             <button key={t.id} onClick={() => setScreen(t.id)} className="py-3 flex flex-col items-center gap-1 relative">
@@ -2598,12 +2638,153 @@ const emptyForm = {
   attachments: [],
 };
 
-function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProject, onGoToProjects, defaultProjectName }) {
-  const [form, setForm] = useState(() => ({
-    ...emptyForm,
-    project: defaultProjectName || '',
-    billNumber: defaultProjectName ? generateBillNo(defaultProjectName, projects, bills) : '',
-  }));
+// ============================================================
+// BILLS SCREEN
+// Replaces the old "New Bill" screen. Shows the full transactions
+// table by default (sorted by createdAt desc) and exposes a
+// "+ New Bill" button that opens the form in a slide-out drawer
+// on desktop, full-screen on mobile. Also lets you click ✎ on any
+// row to edit that record in place.
+// ============================================================
+function BillsScreen({
+  bills, projects, parties, projectFilter,
+  onSave, onSaveAndView, onCreateProject, onGoToProjects,
+  onDelete, defaultProjectName,
+}) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [editingBill, setEditingBill] = useState(null);
+
+  // Scope to selected project filter
+  const scoped = useMemo(() => {
+    if (!projectFilter) return bills;
+    return bills.filter(b => b.project && b.project.toLowerCase() === projectFilter.name.toLowerCase());
+  }, [bills, projectFilter]);
+
+  const openNew = () => { setEditingBill(null); setDrawerOpen(true); };
+  const openEdit = (bill) => { setEditingBill(bill); setDrawerOpen(true); };
+  const closeDrawer = () => { setDrawerOpen(false); setEditingBill(null); };
+
+  // Save handlers wrap parent's to close drawer afterwards
+  const handleSave = (bill) => {
+    onSave(bill);
+    if (editingBill) closeDrawer();
+  };
+  const handleSaveAndView = (bill) => {
+    if (onSaveAndView) onSaveAndView(bill);
+    else onSave(bill);
+    closeDrawer();
+  };
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-start justify-between gap-4 mb-5">
+        <ScreenHeader
+          eyebrow={projectFilter ? `Bills · ${projectFilter.prefix}` : 'Bills'}
+          title="All Transactions"
+          subtitle="Every bill, newest first. Click ✎ to edit, + to add."
+        />
+        <button
+          onClick={openNew}
+          data-tour="new-bill-card"
+          className="flex-shrink-0 px-4 sm:px-5 py-2.5 sm:py-3 rounded-2xl text-white font-bold text-sm flex items-center gap-2 shadow-lg hover:scale-105 active:scale-95 transition"
+          style={{ background: 'linear-gradient(135deg, var(--brand-3) 0%, var(--brand-2) 50%, var(--brand-1) 100%)' }}
+        >
+          <Plus className="w-4 h-4" /> New Bill
+        </button>
+      </div>
+
+      {scoped.length === 0 ? (
+        <div className="py-20 text-center rounded-2xl border" style={{ borderColor: 'var(--border)', background: 'var(--surface)', color: 'var(--text-3)' }}>
+          <Wallet className="w-10 h-10 mx-auto mb-3" style={{ color: 'var(--text-4)' }} />
+          <div className="font-bold text-sm mb-1" style={{ color: 'var(--text-2)' }}>No bills yet</div>
+          <div className="text-xs mb-4">Hit "+ New Bill" to log the first one.</div>
+          <button
+            onClick={openNew}
+            className="px-4 py-2 rounded-xl text-white text-xs font-bold inline-flex items-center gap-1.5"
+            style={{ background: 'var(--brand-gradient)' }}
+          >
+            <Plus className="w-3.5 h-3.5" /> Add First Bill
+          </button>
+        </div>
+      ) : (
+        <AllTransactionsTable bills={scoped} onDelete={onDelete} onEdit={openEdit} />
+      )}
+
+      {/* Drawer (desktop slide-in / mobile full-screen) */}
+      {drawerOpen && (
+        <BillFormDrawer onClose={closeDrawer}>
+          <BillForm
+            onSave={handleSave}
+            onSaveAndView={handleSaveAndView}
+            goToLedger={closeDrawer}
+            projects={projects}
+            parties={parties}
+            bills={bills}
+            onCreateProject={onCreateProject}
+            onGoToProjects={onGoToProjects}
+            defaultProjectName={editingBill ? editingBill.project : defaultProjectName}
+            editingBill={editingBill}
+          />
+        </BillFormDrawer>
+      )}
+    </div>
+  );
+}
+
+// Slide-out drawer wrapper — anchored right on desktop, full-screen on mobile.
+// Closes on backdrop click or Esc.
+function BillFormDrawer({ children, onClose }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.body.style.overflow = '';
+    };
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex" style={{ background: 'rgba(0,0,0,0.5)' }} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="ml-auto w-full sm:w-[640px] max-w-full h-full overflow-y-auto fade-in"
+        style={{ background: 'var(--bg)' }}
+      >
+        <div className="sticky top-0 z-10 px-4 sm:px-6 py-3 flex items-center justify-between border-b backdrop-blur-xl"
+             style={{ background: 'var(--nav-bg)', borderColor: 'var(--border)' }}>
+          <div className="text-sm font-bold" style={{ color: 'var(--text)' }}>Bill Entry</div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full flex items-center justify-center transition hover:scale-110"
+            style={{ color: 'var(--text-2)' }}
+            aria-label="Close"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="px-4 sm:px-6 pb-24">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function BillForm({ onSave, onSaveAndView, goToLedger, projects, parties, bills, onCreateProject, onGoToProjects, defaultProjectName, editingBill }) {
+  const isEditing = Boolean(editingBill);
+  const [form, setForm] = useState(() => {
+    if (editingBill) {
+      // Pre-fill form with existing bill data; spread to a fresh object to avoid mutating
+      return { ...emptyForm, ...editingBill };
+    }
+    return {
+      ...emptyForm,
+      project: defaultProjectName || '',
+      billNumber: defaultProjectName ? generateBillNo(defaultProjectName, projects, bills) : '',
+    };
+  });
   const [errors, setErrors] = useState({});
 
   // When the global selected project changes, mirror it into the form (unless user has typed something different)
@@ -2689,19 +2870,32 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
     return Object.keys(e).length === 0;
   };
 
-  const submit = () => {
-    if (!validate()) return;
-    // Ensure bill number is set (in case user cleared it)
+  // Two flows now:
+  //  - submitAndContinue: save + clear form, stay on form for another entry
+  //  - submitAndView: save + navigate to the table view
+  const buildPayload = () => {
     const finalBillNo = form.billNumber.trim() || generateBillNo(form.project, projects, bills);
-    onSave({ ...form, billNumber: finalBillNo, amount: Number(form.amount) });
-    // Reset form but keep the project context from the global selector
+    return { ...form, billNumber: finalBillNo, amount: Number(form.amount) };
+  };
+  const resetForm = () => {
     setForm({
       ...emptyForm,
       project: defaultProjectName || '',
-      // Bill number will recompute on next render via projects/bills update; leave empty
       billNumber: '',
     });
-    setTimeout(goToLedger, 600);
+    setErrors({});
+  };
+  const submitAndContinue = () => {
+    if (!validate()) return;
+    onSave(buildPayload());
+    if (!isEditing) resetForm();
+    // Editing: the parent will close the drawer/redirect as it sees fit.
+  };
+  const submitAndView = () => {
+    if (!validate()) return;
+    if (onSaveAndView) onSaveAndView(buildPayload());
+    else { onSave(buildPayload()); setTimeout(goToLedger, 400); }
+    if (!isEditing) resetForm();
   };
 
   const activeMode = PAYMENT_MODES.find(m => m.value === form.paymentMode);
@@ -2724,9 +2918,11 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
   return (
     <div className="fade-in" data-tour="new-bill-card">
       <ScreenHeader
-        eyebrow="Step 01"
-        title="New Bill Entry"
-        subtitle="Log a transaction to the production ledger"
+        eyebrow={isEditing ? 'Editing' : 'Step 01'}
+        title={isEditing ? `Edit Bill · ${editingBill.billNumber || ''}` : 'New Bill Entry'}
+        subtitle={isEditing
+          ? 'Modify this record — Bill No and Unique ID stay the same'
+          : 'Log a transaction to the production ledger'}
       />
 
       {/* PROJECT SECTION */}
@@ -2833,14 +3029,11 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
               />
             </div>
           </Field>
-          <Field label="Attach Bill">
+          <Field label="Attach Bill" wide>
             <AttachBillButton
               attachments={form.attachments}
               onAdd={handleFiles}
             />
-          </Field>
-          <Field label="Status" wide>
-            <StatusSelect value={form.status} onChange={v => update('status', v)} />
           </Field>
         </div>
 
@@ -2920,6 +3113,13 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
             {activeMode.needs.includes('cardLast4') && <Field label="Card last 4 digits"><Input value={form.cardLast4} onChange={e => update('cardLast4', e.target.value)} placeholder="0000" maxLength={4} /></Field>}
           </div>
         )}
+
+        {/* Status — sits BELOW Payment Method (and any mode-specific fields) */}
+        <div className="mt-5">
+          <Field label="Status" wide>
+            <StatusSelect value={form.status} onChange={v => update('status', v)} />
+          </Field>
+        </div>
       </Section>
 
       {/* DETAILS SECTION */}
@@ -2945,19 +3145,38 @@ function BillForm({ onSave, goToLedger, projects, parties, bills, onCreateProjec
         </div>
       </Section>
 
-      {/* SUBMIT */}
+      {/* SUBMIT — two actions side-by-side */}
       <div className="mt-8 sticky bottom-20 sm:bottom-6 z-20">
-        <button
-          onClick={submit}
-          className="w-full py-4 rounded-2xl text-white font-bold text-base shadow-2xl flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] transition-transform"
-          style={{
-            background: 'linear-gradient(135deg, var(--brand-3) 0%, var(--brand-2) 50%, var(--brand-1) 100%)',
-            boxShadow: '0 20px 40px -10px rgba(225, 29, 116, 0.4)',
-          }}
-        >
-          <CheckCircle2 className="w-5 h-5" />
-          Save to Ledger
-        </button>
+        <div className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+          <button
+            onClick={submitAndContinue}
+            className="flex-1 py-4 rounded-2xl font-bold text-base flex items-center justify-center gap-2 transition-transform hover:scale-[1.01] active:scale-[0.99] border-2"
+            style={{
+              borderColor: 'var(--brand-1)',
+              background: 'var(--surface)',
+              color: 'var(--brand-1)',
+            }}
+          >
+            <Plus className="w-5 h-5" />
+            {isEditing ? 'Update Bill' : 'Save Bill'}
+          </button>
+          <button
+            onClick={submitAndView}
+            className="flex-1 py-4 rounded-2xl text-white font-bold text-base shadow-2xl flex items-center justify-center gap-2 hover:scale-[1.01] active:scale-[0.99] transition-transform"
+            style={{
+              background: 'linear-gradient(135deg, var(--brand-3) 0%, var(--brand-2) 50%, var(--brand-1) 100%)',
+              boxShadow: '0 20px 40px -10px rgba(225, 29, 116, 0.4)',
+            }}
+          >
+            <CheckCircle2 className="w-5 h-5" />
+            {isEditing ? 'Update & Close' : 'Save & View Ledger'}
+          </button>
+        </div>
+        <div className="text-[10px] text-center mt-2 px-2" style={{ color: 'var(--text-4)' }}>
+          {isEditing
+            ? 'Updates the existing record in place — Bill No stays the same'
+            : '"Save Bill" stays on the form for another entry. "Save & View Ledger" navigates to all transactions.'}
+        </div>
       </div>
     </div>
   );
@@ -3280,7 +3499,7 @@ function StatusSelect({ value, onChange }) {
 // LEDGER VIEW
 // ============================================================
 function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter, forceView }) {
-  const [view, setView] = useState('table');
+  const [view, setView] = useState('department');
   // The product tour can force the ledger into a specific view to highlight it.
   useEffect(() => {
     if (forceView && forceView !== view) setView(forceView);
@@ -3384,7 +3603,6 @@ function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter, force
           />
         </div>
         <div className="flex border rounded-xl p-1 gap-1 flex-wrap" style={{ background: 'var(--surface-3)', borderColor: 'var(--border)' }} data-tour="ledger-views">
-          <ViewToggle active={view === 'table'}      onClick={() => { setView('table');      setSelected(null); }} icon={FileText}   label="Table" />
           <ViewToggle active={view === 'books'}      onClick={() => { setView('books');      setSelected(null); }} icon={Wallet}     label="Books" />
           <ViewToggle active={view === 'individual'} onClick={() => { setView('individual'); setSelected(null); }} icon={User}       label="Individual" />
           <ViewToggle active={view === 'department'} onClick={() => { setView('department'); setSelected(null); }} icon={Briefcase}  label="Department" />
@@ -3398,8 +3616,6 @@ function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter, force
           <Search className="w-10 h-10 mx-auto mb-3 opacity-50" />
           <div>No matches for "{query}"</div>
         </div>
-      ) : view === 'table' ? (
-        <AllTransactionsTable bills={filtered} projects={projects} onDelete={onDelete} />
       ) : view === 'books' ? (
         <BooksScreen
           bills={bills}
@@ -3475,13 +3691,14 @@ function EmptyState({ onNewBill }) {
 // ============================================================
 // LEDGER CARDS + BILL ROW
 // ============================================================
-function AllTransactionsTable({ bills, onDelete }) {
+function AllTransactionsTable({ bills, onDelete, onEdit }) {
   const [expanded, setExpanded] = useState(null);
   const sorted = useMemo(() => {
     return [...bills].sort((a, b) => {
-      const da = new Date(b.date || b.createdAt || 0).getTime();
-      const db = new Date(a.date || a.createdAt || 0).getTime();
-      return da - db; // newest first
+      // Sort by createdAt timestamp (descending) — newest first
+      const ta = new Date(a.createdAt || a.date || 0).getTime();
+      const tb = new Date(b.createdAt || b.date || 0).getTime();
+      return tb - ta;
     });
   }, [bills]);
 
@@ -3503,6 +3720,7 @@ function AllTransactionsTable({ bills, onDelete }) {
               <Th align="right">Amount</Th>
               <Th>Status</Th>
               <Th align="center">Files</Th>
+              {onEdit && <Th align="center">Edit</Th>}
             </tr>
           </thead>
           <tbody>
@@ -3547,10 +3765,22 @@ function AllTransactionsTable({ bills, onDelete }) {
                         </span>
                       ) : '—'}
                     </Td>
+                    {onEdit && (
+                      <Td align="center">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onEdit(b); }}
+                          className="px-2 py-1 rounded-md text-[11px] font-bold border transition hover:scale-105"
+                          style={{ borderColor: 'var(--border-strong)', background: 'var(--surface)', color: 'var(--brand-1)' }}
+                          title="Edit this bill"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      </Td>
+                    )}
                   </tr>
                   {isOpen && (
                     <tr style={{ background: 'var(--surface)' }}>
-                      <td colSpan={9} style={{ padding: '12px 16px', borderTop: '1px solid var(--border-soft)' }}>
+                      <td colSpan={onEdit ? 10 : 9} style={{ padding: '12px 16px', borderTop: '1px solid var(--border-soft)' }}>
                         <BillExpanded bill={b} onDelete={onDelete} />
                       </td>
                     </tr>
@@ -3561,7 +3791,7 @@ function AllTransactionsTable({ bills, onDelete }) {
             <tr style={{ background: 'var(--surface-3)', fontWeight: 700 }}>
               <Td colSpan={6}>{sorted.length} transactions</Td>
               <Td align="right" mono strong>{formatCurrency(total)}</Td>
-              <Td colSpan={2}>&nbsp;</Td>
+              <Td colSpan={onEdit ? 3 : 2}>&nbsp;</Td>
             </tr>
           </tbody>
         </table>
@@ -3570,8 +3800,17 @@ function AllTransactionsTable({ bills, onDelete }) {
       {/* Mobile: stacked cards (BillRow already optimized for narrow screens) */}
       <div className="sm:hidden divide-y" style={{ borderColor: 'var(--border)' }}>
         {sorted.map(b => (
-          <div key={b.id} style={{ borderColor: 'var(--border)' }}>
+          <div key={b.id} style={{ borderColor: 'var(--border)' }} className="relative">
             <BillRow bill={b} viewMode="department" onDelete={onDelete} />
+            {onEdit && (
+              <button
+                onClick={() => onEdit(b)}
+                className="absolute top-2 right-2 px-2 py-1 rounded-md text-[10px] font-bold border"
+                style={{ borderColor: 'var(--border-strong)', background: 'var(--surface)', color: 'var(--brand-1)' }}
+              >
+                <Pencil className="w-3 h-3" />
+              </button>
+            )}
           </div>
         ))}
         <div className="p-3 flex items-center justify-between" style={{ background: 'var(--surface-3)', fontWeight: 700 }}>
