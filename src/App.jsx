@@ -1422,7 +1422,6 @@ export default function App() {
   useEffect(() => {
     if (!loaded) return;
     if (!authUser || authUser.role !== 'admin') return;
-    if (!settings.scriptUrl) return;
 
     let lastRun = 0;
     const REFRESH_COOLDOWN_MS = 30 * 1000; // at most once every 30s
@@ -1441,7 +1440,7 @@ export default function App() {
       window.removeEventListener('focus', tryRefresh);
       document.removeEventListener('visibilitychange', tryRefresh);
     };
-  }, [loaded, authUser, settings.scriptUrl]);
+  }, [loaded, authUser]);
 
   // Strip base64 data + blob previews from attachments before writing to localStorage.
   // The base64 only exists for one purpose — upload to Drive — and is huge. After
@@ -1502,8 +1501,27 @@ export default function App() {
     const sourceBills = opts.billsOverride || bills;
     patchProject(projectId, { driveStatus: 'syncing', driveError: null });
     const projectBills = sourceBills.filter(b => b.project && b.project.toLowerCase() === project.name.toLowerCase());
+    // Use the bundled DEFAULT_SCRIPT_URL — same endpoint as lead capture.
+    // Eliminates any chance of a stale settings.scriptUrl pointing at an old
+    // deployment that's missing the latest attachment fixes.
+    const url = DEFAULT_SCRIPT_URL;
+    // Diagnostic log — answers "did the frontend actually send attachment data?"
+    if (typeof console !== 'undefined') {
+      const attachSummary = projectBills.map(b => ({
+        billNo: b.billNumber,
+        attachCount: (b.attachments || []).length,
+        attachWithData: (b.attachments || []).filter(a => a.data || a.preview?.startsWith?.('data:')).length,
+        attachAlreadyUploaded: (b.attachments || []).filter(a => a.driveUrl).length,
+      }));
+      console.info('[CineLedger] syncProject →', url, '· project:', project.name, '· bills:', projectBills.length, '· attach summary:', attachSummary);
+    }
     try {
-      const r = await driveAdapter.syncProject(settings.scriptUrl, project.name, project.prefix, projectBills);
+      const r = await driveAdapter.syncProject(url, project.name, project.prefix, projectBills);
+      if (typeof console !== 'undefined') {
+        console.info('[CineLedger] syncProject response · version:', r.version || '(none — old deployment)',
+                     '· billsSynced:', r.billsSynced, '· attachmentsUploaded:', r.attachmentsUploaded,
+                     '· attachmentErrors:', r.attachmentErrors);
+      }
       patchProject(projectId, {
         driveStatus: 'synced',
         driveFolderId: r.folderId,
@@ -1554,8 +1572,10 @@ export default function App() {
 
   // Pull the latest Config-sheet state into local projects (matches by name)
   const refreshConfigFromDrive = async (opts = {}) => {
-    if (!settings.scriptUrl) {
-      if (!opts.silent) flashToast('info', 'Set the Apps Script URL in Settings first');
+    // Always hit the bundled URL — see comment in syncProjectBills
+    const url = DEFAULT_SCRIPT_URL;
+    if (!url) {
+      if (!opts.silent) flashToast('info', 'Apps Script URL not bundled in this build');
       return { ok: false };
     }
     // Allow the caller to pass an explicit project list (e.g. from the just-loaded
@@ -1563,7 +1583,7 @@ export default function App() {
     // the closure `projects` for the normal Settings → Refresh button.
     const baseProjects = Array.isArray(opts.projectsOverride) ? opts.projectsOverride : projects;
     try {
-      const r = await driveAdapter.getConfig(settings.scriptUrl);
+      const r = await driveAdapter.getConfig(url);
       const cfgRows = Array.isArray(r.projects) ? r.projects : [];
       const localByName = new Map(baseProjects.map(p => [p.name.toLowerCase(), p]));
 
@@ -1628,12 +1648,9 @@ export default function App() {
 
   // Push a manually-edited config row to Drive (admin override)
   const pushConfigRow = async (row) => {
-    if (!settings.scriptUrl) {
-      flashToast('info', 'Set the Apps Script URL in Settings first');
-      return { ok: false };
-    }
+    const url = DEFAULT_SCRIPT_URL;
     try {
-      await driveAdapter.updateConfig(settings.scriptUrl, row);
+      await driveAdapter.updateConfig(url, row);
       // mirror locally
       const proj = projects.find(p => p.name.toLowerCase() === row.name.toLowerCase());
       if (proj) {
@@ -1736,8 +1753,8 @@ export default function App() {
     persistBills(nextBills);
     flashToast('success', 'Bill saved · syncing to Drive…');
 
-    // Auto-sync — we already have billProject in hand, no lookup needed.
-    if (settings.scriptUrl && billProject) {
+    // Auto-sync — we always have a bundled DEFAULT_SCRIPT_URL, so just go.
+    if (billProject) {
       syncProjectBills(billProject.id, {
         silent: true,
         billsOverride: nextBills,
@@ -1748,9 +1765,6 @@ export default function App() {
           else if (r && r.error) flashToast('info', 'Auto-sync failed — open Projects to retry');
         })
         .catch(e => console.warn('Auto-sync failed:', e));
-    } else if (!settings.scriptUrl) {
-      // No Drive backend configured — let the user know once.
-      flashToast('info', 'Add an Apps Script URL in Settings to enable auto-sync');
     }
   };
 
@@ -1805,7 +1819,7 @@ export default function App() {
       // if the local cache is empty (fresh browser, wiped storage, etc.).
       (async () => {
         const loadedProjects = await reloadRealData();
-        if (loadedProjects.length === 0 && settings.scriptUrl) {
+        if (loadedProjects.length === 0) {
           flashToast('info', 'Local cache empty — recovering from Drive…');
           await refreshConfigFromDrive({ projectsOverride: [], silent: false });
         }
