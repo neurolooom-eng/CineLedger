@@ -103,6 +103,132 @@ const DRIVE_PARENT_FOLDER_ID = '1Q-eSFalmrtrzZVh0Ukgrl08S9RT8bF2G';
 // Seed value for the Apps Script URL. Set to '' if you don't want a default.
 const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyOB0FXVnajr8wU1YOKZAewXWOZPxJjqQbxXW9sMExgjCSykK8iKg99vw0-zN9K2hQV-A/exec';
 
+// ============================================================
+// AUTHORIZED ADMIN CREDENTIALS (hard-coded soft gate)
+// Only this identity gains access to the app + admin features
+// (gear icon, project enable/disable, etc.).
+// ============================================================
+const ADMIN_EMAIL = 'neurolooom@gmail.com';
+const ADMIN_PIN   = '3397';
+
+function LoginScreen({ onLogin, theme, toggleTheme }) {
+  const [email, setEmail] = useState('');
+  const [pin, setPin] = useState('');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const submit = (e) => {
+    if (e && e.preventDefault) e.preventDefault();
+    setErr('');
+    setBusy(true);
+    // Slight delay so the button feels responsive
+    setTimeout(() => {
+      const r = onLogin(email, pin);
+      setBusy(false);
+      if (!r.ok) setErr(r.error || 'Login failed');
+    }, 120);
+  };
+
+  return (
+    <div className="min-h-screen flex flex-col items-center justify-center px-4 py-10 relative">
+      {/* Theme toggle pinned top-right even on login screen */}
+      <div className="absolute top-4 right-4">
+        <ThemeToggle theme={theme} onClick={toggleTheme} />
+      </div>
+
+      {/* Logo */}
+      <div className="mb-6 flex flex-col items-center">
+        <div
+          className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-lg mb-4"
+          style={{ background: 'linear-gradient(135deg, #E11D74 0%, #EA580C 50%, #D97706 100%)' }}
+        >
+          <Clapperboard className="w-8 h-8 text-white" strokeWidth={2.5} />
+        </div>
+        <h1
+          className="text-4xl sm:text-5xl leading-none"
+          style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.02em', color: 'var(--text)' }}
+        >
+          CineLedger
+        </h1>
+        <p className="text-xs mt-1" style={{ color: 'var(--text-3)' }}>Accounts for the silver screen</p>
+      </div>
+
+      {/* Login card */}
+      <form
+        onSubmit={submit}
+        className="w-full max-w-sm rounded-3xl border p-6 sm:p-7"
+        style={{ background: 'var(--surface-elevated)', borderColor: 'var(--border)', boxShadow: 'var(--shadow-lg)' }}
+      >
+        <div className="text-[10px] font-bold tracking-[0.2em] uppercase mb-1" style={{ color: 'var(--text-3)' }}>
+          Sign in
+        </div>
+        <h2 className="text-2xl mb-5" style={{ fontFamily: '"Bebas Neue", sans-serif', color: 'var(--text)' }}>
+          Admin Access Only
+        </h2>
+
+        <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
+          Email
+        </label>
+        <input
+          type="email"
+          autoComplete="username"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="you@example.com"
+          autoFocus
+          className={inputBaseClasses + ' mb-4'}
+          style={inputStyle}
+        />
+
+        <label className="block text-[11px] uppercase tracking-wider font-bold mb-1.5" style={{ color: 'var(--text-3)' }}>
+          PIN
+        </label>
+        <input
+          type="password"
+          inputMode="numeric"
+          autoComplete="current-password"
+          value={pin}
+          onChange={e => setPin(e.target.value)}
+          placeholder="••••"
+          maxLength={12}
+          className={inputBaseClasses + ' mb-4'}
+          style={{ ...inputStyle, fontFamily: '"IBM Plex Mono", monospace', letterSpacing: '0.2em' }}
+        />
+
+        {err && (
+          <div
+            className="mb-4 px-3 py-2 rounded-lg text-xs flex items-start gap-2"
+            style={{ background: 'rgba(239,68,68,0.10)', color: '#B91C1C' }}
+          >
+            <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+            <span>{err}</span>
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={busy || !email || !pin}
+          className="w-full py-3 rounded-xl text-white font-bold text-sm shadow-md transition hover:scale-[1.01] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          style={{ background: 'linear-gradient(135deg, #D97706, #EA580C, #E11D74)' }}
+        >
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileCheck className="w-4 h-4" />}
+          {busy ? 'Verifying…' : 'Sign In'}
+        </button>
+
+        <div className="mt-5 pt-4 border-t text-[11px] leading-relaxed" style={{ borderColor: 'var(--border)', color: 'var(--text-3)' }}>
+          This is a private workspace. Only authorized administrators can access it.
+        </div>
+      </form>
+
+      <div className="mt-6 text-[11px]" style={{ color: 'var(--text-4)' }}>
+        © 2026 <span style={{ color: '#E11D74', fontWeight: 700 }}>BrandEpic</span> by <span style={{ color: 'var(--text-2)', fontWeight: 700 }}>Aang</span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+
 const driveAdapter = {
   async call(scriptUrl, action, payload = {}) {
     if (!scriptUrl) throw new Error('Apps Script URL not configured — open Settings');
@@ -317,6 +443,7 @@ export default function App() {
   const [projects, setProjects] = useState([]);
   const [parties, setParties] = useState([]);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
+  const [authUser, setAuthUser] = useState(null);  // null when logged out
   const [settings, setSettings] = useState({
     scriptUrl: DEFAULT_SCRIPT_URL,
     parentFolderId: DRIVE_PARENT_FOLDER_ID,
@@ -324,6 +451,9 @@ export default function App() {
   });
   const [loaded, setLoaded] = useState(false);
   const [toast, setToast] = useState(null);
+
+  // Derived: is the current session an authenticated admin?
+  const isAdmin = Boolean(authUser && authUser.email && authUser.email.toLowerCase() === ADMIN_EMAIL.toLowerCase());
 
   const [theme, setTheme] = useState(() => {
     try {
@@ -336,16 +466,20 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [b, pr, pa, t, sel, st] = await Promise.all([
+      const [b, pr, pa, t, sel, st, au] = await Promise.all([
         dataLayer.get('cine-bills'),
         dataLayer.get('cine-projects'),
         dataLayer.get('cine-parties'),
         dataLayer.getRaw('cine-theme'),
         dataLayer.getRaw('cine-selected-project'),
         dataLayer.get('cine-settings'),
+        dataLayer.get('cine-auth'),
       ]);
       if (Array.isArray(b)) setBills(b);
-      if (Array.isArray(pr)) setProjects(pr);
+      if (Array.isArray(pr)) {
+        // Migrate older projects without 'enabled' flag — default to true
+        setProjects(pr.map(p => p.enabled === false ? p : { ...p, enabled: p.enabled !== false }));
+      }
       if (Array.isArray(pa)) setParties(pa);
       if (t === 'dark' || t === 'light') setTheme(t);
       if (sel) setSelectedProjectId(sel);
@@ -356,6 +490,10 @@ export default function App() {
           scriptUrl: st.scriptUrl || s.scriptUrl, // keep default if saved is empty
           parentFolderId: st.parentFolderId || s.parentFolderId,
         }));
+      }
+      // Restore auth only if it matches the hard-coded admin (defensive)
+      if (au && typeof au === 'object' && au.email && au.email.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+        setAuthUser(au);
       }
       setLoaded(true);
     })();
@@ -611,6 +749,31 @@ export default function App() {
     flashToast('info', 'Bill removed');
   };
 
+  // Auth handlers — soft gate against the hard-coded admin credentials
+  const tryLogin = (email, pin) => {
+    const e = (email || '').trim().toLowerCase();
+    const p = (pin || '').trim();
+    if (e === ADMIN_EMAIL.toLowerCase() && p === ADMIN_PIN) {
+      const user = { email: ADMIN_EMAIL, role: 'admin', loggedInAt: new Date().toISOString() };
+      setAuthUser(user);
+      dataLayer.set('cine-auth', user);
+      return { ok: true };
+    }
+    return { ok: false, error: 'Wrong email or PIN' };
+  };
+  const logout = () => {
+    setAuthUser(null);
+    dataLayer.set('cine-auth', null);
+    setScreen('form');
+  };
+
+  // Filter to ENABLED projects for screens used by non-admins; admins see all.
+  // Admin "Settings" / "Projects" master view always shows all so the admin can toggle them.
+  const visibleProjects = useMemo(
+    () => projects.filter(p => p.enabled !== false),
+    [projects]
+  );
+
   return (
     <div
       className={`min-h-screen relative theme-transition theme-${theme} flex flex-col`}
@@ -623,88 +786,98 @@ export default function App() {
       <style>{THEME_CSS}</style>
       <FontLoader />
 
-      <Header
-        screen={screen}
-        setScreen={setScreen}
-        theme={theme}
-        toggleTheme={toggleTheme}
-        onOpenSettings={() => setScreen('settings')}
-        settingsConfigured={Boolean(settings.scriptUrl)}
-      />
-
-      {loaded && projects.length > 0 && (
-        <ProjectSelector
-          projects={projects}
-          selectedId={selectedProjectId}
-          onChange={selectProject}
-        />
-      )}
-
-      <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 pb-8 pt-4 sm:pt-6 relative z-10">
-        {!loaded ? (
-          <div className="text-center py-20" style={{ color: 'var(--text-4)' }}>Loading…</div>
-        ) : screen === 'form' ? (
-          <BillForm
-            onSave={saveBill}
-            goToLedger={() => setScreen('ledger')}
-            projects={projects}
-            parties={parties}
-            bills={bills}
-            onCreateProject={addProject}
-            onGoToProjects={() => setScreen('projects')}
-            defaultProjectName={selectedProjectId ? (projects.find(p => p.id === selectedProjectId)?.name || '') : ''}
-          />
-        ) : screen === 'ledger' ? (
-          <LedgerView
-            bills={bills}
-            onDelete={deleteBill}
-            onNewBill={() => setScreen('form')}
-            projectFilter={selectedProjectId ? projects.find(p => p.id === selectedProjectId) : null}
-          />
-        ) : screen === 'books' ? (
-          <BooksScreen
-            bills={bills}
-            projects={projects}
-            selectedProject={selectedProjectId ? projects.find(p => p.id === selectedProjectId) : null}
-            onSelectProject={(id) => selectProject(id)}
-          />
-        ) : screen === 'projects' ? (
-          <ProjectsScreen
-            projects={projects}
-            bills={bills}
-            onAdd={addProject}
-            onUpdate={updateProject}
-            onDelete={deleteProject}
-            onSyncBills={syncProjectBills}
-            onSelectProject={(id) => { selectProject(id); setScreen('ledger'); }}
-            settingsConfigured={Boolean(settings.scriptUrl)}
+      {!loaded ? (
+        <div className="flex-1 flex items-center justify-center" style={{ color: 'var(--text-4)' }}>Loading…</div>
+      ) : !authUser ? (
+        <LoginScreen onLogin={tryLogin} theme={theme} toggleTheme={toggleTheme} />
+      ) : (
+        <>
+          <Header
+            screen={screen}
+            setScreen={setScreen}
+            theme={theme}
+            toggleTheme={toggleTheme}
             onOpenSettings={() => setScreen('settings')}
+            settingsConfigured={Boolean(settings.scriptUrl)}
+            isAdmin={isAdmin}
+            authUser={authUser}
+            onLogout={logout}
           />
-        ) : (
-          <SettingsScreen
-            settings={settings}
-            onUpdate={updateSettings}
-            projects={projects}
-            onRefresh={refreshConfigFromDrive}
-            onPushRow={pushConfigRow}
-            onSyncProject={syncProjectBills}
-          />
-        )}
-      </main>
 
-      <Footer />
+          {visibleProjects.length > 0 && (
+            <ProjectSelector
+              projects={visibleProjects}
+              selectedId={selectedProjectId}
+              onChange={selectProject}
+            />
+          )}
 
-      <BottomNav screen={screen} setScreen={setScreen} />
+          <main className="flex-1 w-full max-w-[1400px] mx-auto px-4 sm:px-6 pb-8 pt-4 sm:pt-6 relative z-10">
+            {screen === 'form' ? (
+              <BillForm
+                onSave={saveBill}
+                goToLedger={() => setScreen('ledger')}
+                projects={visibleProjects}
+                parties={parties}
+                bills={bills}
+                onCreateProject={addProject}
+                onGoToProjects={() => setScreen('projects')}
+                defaultProjectName={selectedProjectId ? (visibleProjects.find(p => p.id === selectedProjectId)?.name || '') : ''}
+              />
+            ) : screen === 'ledger' ? (
+              <LedgerView
+                bills={bills}
+                projects={visibleProjects}
+                onDelete={deleteBill}
+                onNewBill={() => setScreen('form')}
+                projectFilter={selectedProjectId ? visibleProjects.find(p => p.id === selectedProjectId) : null}
+              />
+            ) : screen === 'projects' ? (
+              <ProjectsScreen
+                projects={projects}
+                bills={bills}
+                onAdd={addProject}
+                onUpdate={updateProject}
+                onDelete={deleteProject}
+                onSyncBills={syncProjectBills}
+                onSelectProject={(id) => { selectProject(id); setScreen('ledger'); }}
+                settingsConfigured={Boolean(settings.scriptUrl)}
+                onOpenSettings={() => setScreen('settings')}
+                isAdmin={isAdmin}
+              />
+            ) : screen === 'settings' && isAdmin ? (
+              <SettingsScreen
+                settings={settings}
+                onUpdate={updateSettings}
+                projects={projects}
+                onUpdateProject={updateProject}
+                onRefresh={refreshConfigFromDrive}
+                onPushRow={pushConfigRow}
+                onSyncProject={syncProjectBills}
+                onLogout={logout}
+                authUser={authUser}
+              />
+            ) : (
+              // Fallback — non-admin tried to reach a restricted screen
+              <div className="text-center py-20" style={{ color: 'var(--text-4)' }}>Not available</div>
+            )}
+          </main>
 
-      {toast && (
-        <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-[60] animate-[slideup_0.3s_ease-out]">
-          <div className={`px-5 py-3 rounded-full shadow-2xl backdrop-blur-xl flex items-center gap-2 text-sm font-medium ${
-            toast.kind === 'success' ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white'
-          }`}>
-            {toast.kind === 'success' && <CheckCircle2 className="w-4 h-4" />}
-            {toast.msg}
-          </div>
-        </div>
+          <Footer />
+
+          <BottomNav screen={screen} setScreen={setScreen} />
+
+          {toast && (
+            <div className="fixed bottom-24 sm:bottom-8 left-1/2 -translate-x-1/2 z-[60] animate-[slideup_0.3s_ease-out]">
+              <div className={`px-5 py-3 rounded-full shadow-2xl backdrop-blur-xl flex items-center gap-2 text-sm font-medium ${
+                toast.kind === 'success' ? 'bg-emerald-500 text-white' : 'bg-slate-900 text-white'
+              }`}>
+                {toast.kind === 'success' && <CheckCircle2 className="w-4 h-4" />}
+                {toast.msg}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -713,7 +886,15 @@ export default function App() {
 // ============================================================
 // HEADER
 // ============================================================
-function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, settingsConfigured }) {
+function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, settingsConfigured, isAdmin, authUser, onLogout }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef(null);
+  useEffect(() => {
+    const h = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false); };
+    document.addEventListener('mousedown', h);
+    return () => document.removeEventListener('mousedown', h);
+  }, []);
+
   return (
     <header
       className="sticky top-0 z-30 backdrop-blur-xl border-b"
@@ -743,36 +924,88 @@ function Header({ screen, setScreen, theme, toggleTheme, onOpenSettings, setting
         </div>
 
         <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-          <button
-            onClick={onOpenSettings}
-            aria-label="Settings"
-            className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full border flex items-center justify-center transition-all hover:scale-105 active:scale-95 ${screen === 'settings' ? 'ring-2 ring-offset-1' : ''}`}
-            style={{
-              background: 'var(--surface)',
-              borderColor: screen === 'settings' ? '#E11D74' : 'var(--border)',
-              color: 'var(--text-2)',
-            }}
-          >
-            <Settings className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
-            {!settingsConfigured && (
-              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"
-                    style={{ background: '#EA580C', borderColor: 'var(--surface)' }}
-                    title="Apps Script URL not configured" />
-            )}
-          </button>
+          {/* Gear icon — admins only */}
+          {isAdmin && (
+            <button
+              onClick={onOpenSettings}
+              aria-label="Settings"
+              className={`relative w-9 h-9 sm:w-10 sm:h-10 rounded-full border flex items-center justify-center transition-all hover:scale-105 active:scale-95 ${screen === 'settings' ? 'ring-2 ring-offset-1' : ''}`}
+              style={{
+                background: 'var(--surface)',
+                borderColor: screen === 'settings' ? '#E11D74' : 'var(--border)',
+                color: 'var(--text-2)',
+              }}
+            >
+              <Settings className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
+              {!settingsConfigured && (
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2"
+                      style={{ background: '#EA580C', borderColor: 'var(--surface)' }}
+                      title="Apps Script URL not configured" />
+              )}
+            </button>
+          )}
 
-          <ThemeToggle theme={theme} onClick={toggleTheme} />
-
-          {/* Desktop nav */}
+          {/* Desktop nav (no Books tab — folded into Ledger) */}
           <nav
             className="hidden sm:flex items-center gap-1 rounded-full p-1 border"
             style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}
           >
             <NavBtn active={screen === 'form'}     onClick={() => setScreen('form')}     icon={Plus}       label="New Bill" />
             <NavBtn active={screen === 'ledger'}   onClick={() => setScreen('ledger')}   icon={Wallet}     label="Ledger" />
-            <NavBtn active={screen === 'books'}    onClick={() => setScreen('books')}    icon={FileText}   label="Books" />
             <NavBtn active={screen === 'projects'} onClick={() => setScreen('projects')} icon={FolderOpen} label="Projects" />
           </nav>
+
+          {/* User menu (logout) */}
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen(v => !v)}
+              aria-label="Account"
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-full border flex items-center justify-center transition-all hover:scale-105 active:scale-95"
+              style={{ background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text-2)' }}
+              title={authUser?.email || 'Account'}
+            >
+              <User className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
+            </button>
+            {menuOpen && (
+              <div
+                className="absolute right-0 top-full mt-2 w-56 rounded-xl border overflow-hidden scale-in"
+                style={{
+                  background: 'var(--surface-elevated)',
+                  borderColor: 'var(--border-strong)',
+                  boxShadow: 'var(--shadow-lg)',
+                  zIndex: 100,
+                }}
+              >
+                <div className="px-3 py-3 border-b" style={{ borderColor: 'var(--border-soft)' }}>
+                  <div className="text-[10px] uppercase tracking-wider font-bold" style={{ color: 'var(--text-3)' }}>
+                    Signed in as
+                  </div>
+                  <div className="text-xs mt-0.5 truncate font-semibold" style={{ color: 'var(--text)' }}>
+                    {authUser?.email}
+                  </div>
+                  {isAdmin && (
+                    <div className="text-[10px] mt-1 inline-block px-1.5 py-0.5 rounded font-bold"
+                         style={{ background: 'rgba(225,29,116,0.15)', color: '#E11D74' }}>
+                      ADMIN
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => { setMenuOpen(false); onLogout(); }}
+                  className="w-full px-3 py-2.5 text-left text-sm font-semibold flex items-center gap-2 transition hover:opacity-90"
+                  style={{ color: '#EF4444' }}
+                  onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+                  onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  Sign out
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Theme toggle — moved to the absolute end */}
+          <ThemeToggle theme={theme} onClick={toggleTheme} />
         </div>
       </div>
 
@@ -1024,9 +1257,8 @@ function DriveStatusBadge({ project, small }) {
 // ============================================================
 function BottomNav({ screen, setScreen }) {
   const items = [
-    { id: 'form',     icon: Plus,       label: 'New' },
+    { id: 'form',     icon: Plus,       label: 'New Bill' },
     { id: 'ledger',   icon: Wallet,     label: 'Ledger' },
-    { id: 'books',    icon: FileText,   label: 'Books' },
     { id: 'projects', icon: FolderOpen, label: 'Projects' },
   ];
   return (
@@ -1034,7 +1266,7 @@ function BottomNav({ screen, setScreen }) {
       className="sm:hidden fixed bottom-0 left-0 right-0 z-30 backdrop-blur-xl border-t"
       style={{ background: 'var(--nav-bg)', borderColor: 'var(--border)' }}
     >
-      <div className="grid grid-cols-4">
+      <div className="grid grid-cols-3">
         {items.map(t => {
           const active = screen === t.id;
           const Icon = t.icon;
@@ -1732,8 +1964,8 @@ function StatusSelect({ value, onChange }) {
 // ============================================================
 // LEDGER VIEW
 // ============================================================
-function LedgerView({ bills, onDelete, onNewBill, projectFilter }) {
-  const [view, setView] = useState('department');
+function LedgerView({ bills, projects, onDelete, onNewBill, projectFilter }) {
+  const [view, setView] = useState('table');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(null);
 
@@ -1790,8 +2022,16 @@ function LedgerView({ bills, onDelete, onNewBill, projectFilter }) {
       add(b.paidTo, 'payee');
     });
     return Array.from(map.values())
-      .map(p => ({ ...p, key: p.name, total: p.paidAmount + p.receivedAmount, count: p.list.length }))
-      .sort((a, b) => b.total - a.total);
+      .map(p => ({
+        ...p,
+        key: p.name,
+        total: p.paidAmount + p.receivedAmount,
+        // Closing balance from the person's POV: received - paid out.
+        // Positive = net received, negative = net paid out.
+        closingBalance: p.receivedAmount - p.paidAmount,
+        count: p.list.length,
+      }))
+      .sort((a, b) => Math.abs(b.closingBalance) - Math.abs(a.closingBalance));
   }, [filtered]);
 
   const groups = view === 'department' ? byDepartment : byIndividual;
@@ -1824,22 +2064,31 @@ function LedgerView({ bills, onDelete, onNewBill, projectFilter }) {
             style={{ background: 'var(--surface)', borderColor: 'var(--border)', color: 'var(--text)', boxShadow: 'var(--shadow-sm)' }}
           />
         </div>
-        <div className="flex border rounded-xl p-1 gap-1" style={{ background: 'var(--surface-3)', borderColor: 'var(--border)' }}>
-          <ViewToggle active={view === 'department'} onClick={() => { setView('department'); setSelected(null); }} icon={Briefcase} label="Department" />
-          <ViewToggle active={view === 'individual'} onClick={() => { setView('individual'); setSelected(null); }} icon={User}      label="Individual" />
-          <ViewToggle active={view === 'table'}      onClick={() => { setView('table');      setSelected(null); }} icon={FileText}  label="Table" />
+        <div className="flex border rounded-xl p-1 gap-1 flex-wrap" style={{ background: 'var(--surface-3)', borderColor: 'var(--border)' }}>
+          <ViewToggle active={view === 'table'}      onClick={() => { setView('table');      setSelected(null); }} icon={FileText}   label="Table" />
+          <ViewToggle active={view === 'department'} onClick={() => { setView('department'); setSelected(null); }} icon={Briefcase}  label="Department" />
+          <ViewToggle active={view === 'individual'} onClick={() => { setView('individual'); setSelected(null); }} icon={User}       label="Individual" />
+          <ViewToggle active={view === 'books'}      onClick={() => { setView('books');      setSelected(null); }} icon={Wallet}     label="Books" />
         </div>
       </div>
 
       {scoped.length === 0 ? (
         <EmptyState onNewBill={onNewBill} />
-      ) : filtered.length === 0 ? (
+      ) : filtered.length === 0 && view !== 'books' ? (
         <div className="text-center py-16" style={{ color: 'var(--text-4)' }}>
           <Search className="w-10 h-10 mx-auto mb-3 opacity-50" />
           <div>No matches for "{query}"</div>
         </div>
       ) : view === 'table' ? (
-        <AllTransactionsTable bills={filtered} projects={[]} onDelete={onDelete} />
+        <AllTransactionsTable bills={filtered} projects={projects} onDelete={onDelete} />
+      ) : view === 'books' ? (
+        <BooksScreen
+          bills={bills}
+          projects={projects}
+          selectedProject={projectFilter}
+          onSelectProject={() => {}}
+          embedded
+        />
       ) : (
         <div className="space-y-3">
           {groups.map(g => (
@@ -2101,10 +2350,27 @@ function LedgerCard({ group, view, expanded, onToggle, onDelete }) {
           </div>
         </div>
         <div className="text-right flex-shrink-0">
-          <div className="text-base sm:text-xl font-bold" style={{ fontFamily: '"IBM Plex Mono", monospace', color }}>
-            {formatCurrency(group.total)}
-          </div>
-          <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-4)' }}>{group.count} bill{group.count === 1 ? '' : 's'}</div>
+          {view === 'individual' ? (
+            <>
+              <div className="text-base sm:text-xl font-bold"
+                   style={{
+                     fontFamily: '"IBM Plex Mono", monospace',
+                     color: group.closingBalance < 0 ? '#EA580C' : (group.closingBalance > 0 ? '#16A34A' : 'var(--text)'),
+                   }}>
+                {group.closingBalance < 0 ? '−' : (group.closingBalance > 0 ? '+' : '')}{formatCurrency(Math.abs(group.closingBalance))}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-4)' }}>
+                Closing · {group.count} txn{group.count === 1 ? '' : 's'}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="text-base sm:text-xl font-bold" style={{ fontFamily: '"IBM Plex Mono", monospace', color }}>
+                {formatCurrency(group.total)}
+              </div>
+              <div className="text-[10px] uppercase tracking-wider" style={{ color: 'var(--text-4)' }}>{group.count} bill{group.count === 1 ? '' : 's'}</div>
+            </>
+          )}
         </div>
         <ChevronDown className={`w-5 h-5 transition-transform ${expanded ? 'rotate-180' : ''}`} style={{ color: 'var(--text-4)' }} />
       </button>
@@ -2306,7 +2572,7 @@ function fmtMoney(n) {
 // ============================================================
 // BOOKS SCREEN — accounts-style ledger journal with running balance
 // ============================================================
-function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
+function BooksScreen({ bills, projects, selectedProject, onSelectProject, embedded = false }) {
   const [selectedParty, setSelectedParty] = useState('');
 
   // 1. Bills constrained by project filter (top sticky selector)
@@ -2393,15 +2659,17 @@ function BooksScreen({ bills, projects, selectedProject, onSelectProject }) {
 
   return (
     <div>
-      <div className="mb-6">
-        <div className="text-[10px] font-bold tracking-[0.2em] uppercase" style={{ color: 'var(--text-3)' }}>Books</div>
-        <h1 className="text-3xl sm:text-5xl mb-1" style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.01em', color: 'var(--text)' }}>
-          Individual Ledger
-        </h1>
-        <p style={{ color: 'var(--text-3)' }} className="text-sm">
-          Account ledger for a single person · {selectedProject ? selectedProject.name : 'All projects'}
-        </p>
-      </div>
+      {!embedded && (
+        <div className="mb-6">
+          <div className="text-[10px] font-bold tracking-[0.2em] uppercase" style={{ color: 'var(--text-3)' }}>Books</div>
+          <h1 className="text-3xl sm:text-5xl mb-1" style={{ fontFamily: '"Bebas Neue", sans-serif', letterSpacing: '0.01em', color: 'var(--text)' }}>
+            Individual Ledger
+          </h1>
+          <p style={{ color: 'var(--text-3)' }} className="text-sm">
+            Account ledger for a single person · {selectedProject ? selectedProject.name : 'All projects'}
+          </p>
+        </div>
+      )}
 
       {/* Person picker */}
       <div className="mb-6 rounded-2xl border p-4" style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}>
@@ -2997,7 +3265,7 @@ function ProjectModal({ project, onClose, onSave, onDelete, existingNames }) {
 // ============================================================
 // SETTINGS / CONFIG SCREEN (admin)
 // ============================================================
-function SettingsScreen({ settings, onUpdate, projects, onRefresh, onPushRow, onSyncProject }) {
+function SettingsScreen({ settings, onUpdate, projects, onUpdateProject, onRefresh, onPushRow, onSyncProject, onLogout, authUser }) {
   const [scriptUrlDraft, setScriptUrlDraft] = useState(settings.scriptUrl || '');
   const [folderDraft, setFolderDraft] = useState(settings.parentFolderId || '');
   const [savedFlash, setSavedFlash] = useState(false);
@@ -3184,6 +3452,82 @@ function SettingsScreen({ settings, onUpdate, projects, onRefresh, onPushRow, on
         )}
         <div className="text-[11px] mt-3 leading-relaxed pt-3 border-t" style={{ color: 'var(--text-3)', borderColor: 'var(--border)' }}>
           Tap a row's Sync button to auto-create or refresh the folder + sheet. To manually override a stale link, click <Pencil className="w-3 h-3 inline" /> on a row, paste the new URL, and Save — it pushes straight to the Config sheet.
+        </div>
+      </Section>
+
+      <Section title="Project Visibility" accent="#7C3AED" icon={FolderOpen}>
+        <div className="text-[11px] mb-3" style={{ color: 'var(--text-3)' }}>
+          Toggle which projects appear in the New Bill form, Project picker, and Ledger. Disabled projects stay in the Projects master and Drive — only their visibility in the app changes.
+        </div>
+        {projects.length === 0 ? (
+          <div className="text-xs py-4 text-center" style={{ color: 'var(--text-3)' }}>
+            No projects yet — create one from the Projects tab.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {projects.map(p => {
+              const enabled = p.enabled !== false;
+              return (
+                <div
+                  key={p.id}
+                  className="flex items-center gap-3 p-3 rounded-xl border"
+                  style={{ background: 'var(--surface-2)', borderColor: 'var(--border)' }}
+                >
+                  <span
+                    className="px-2 py-1 rounded-md text-[10px] font-bold tracking-wide font-mono flex-shrink-0"
+                    style={{
+                      background: (p.color || '#94a3b8') + '22',
+                      color: p.color || 'var(--text-2)',
+                      border: `1px solid ${(p.color || '#94a3b8')}55`,
+                    }}
+                  >
+                    {p.prefix}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold truncate" style={{ color: 'var(--text)' }}>{p.name}</div>
+                    <div className="text-[11px]" style={{ color: enabled ? '#16A34A' : 'var(--text-4)' }}>
+                      {enabled ? 'Visible to users' : 'Hidden'}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => onUpdateProject(p.id, { enabled: !enabled })}
+                    role="switch"
+                    aria-checked={enabled}
+                    className="relative w-11 h-6 rounded-full transition-colors flex-shrink-0"
+                    style={{ background: enabled ? '#16A34A' : 'var(--surface-3)' }}
+                  >
+                    <span
+                      className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all"
+                      style={{ left: enabled ? '22px' : '2px' }}
+                    />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Section>
+
+      <Section title="Account" accent="#E11D74" icon={User}>
+        <div className="text-sm space-y-3" style={{ color: 'var(--text-2)' }}>
+          <div className="flex items-center gap-2">
+            <span style={{ color: 'var(--text-3)' }}>Signed in as:</span>
+            <span className="font-mono">{authUser?.email}</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-bold"
+                  style={{ background: 'rgba(225,29,116,0.15)', color: '#E11D74' }}>
+              ADMIN
+            </span>
+          </div>
+          <button
+            onClick={onLogout}
+            className="px-4 py-2 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5 transition border"
+            style={{ color: '#EF4444', borderColor: 'rgba(239,68,68,0.3)' }}
+            onMouseEnter={e => e.currentTarget.style.background = 'rgba(239,68,68,0.08)'}
+            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Sign out
+          </button>
         </div>
       </Section>
 
