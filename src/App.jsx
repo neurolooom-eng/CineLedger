@@ -1520,9 +1520,20 @@ export default function App() {
       const r = await driveAdapter.syncProject(url, project.name, project.prefix, projectBills);
       try {
         console.info('[CineLedger] syncProject response · version:', r.version || '(none — old deployment)',
-                     '· billsSynced:', r.billsSynced, '· attachmentsUploaded:', r.attachmentsUploaded,
+                     '· billsSynced:', r.billsSynced, '· billsAppended:', r.billsAppended,
+                     '· billsUpdated:', r.billsUpdated, '· headersChanged:', r.headersChanged,
+                     '· attachmentsUploaded:', r.attachmentsUploaded,
                      '· attachmentErrors:', r.attachmentErrors);
       } catch (_) {}
+      // Hard-warn the admin if the deployed Apps Script is older than v1.4 —
+      // older deployments overwrite the Bills sheet with the pre-Timestamp/SystemEmail
+      // header layout, which looks like a regression but is really a stale backend.
+      const EXPECTED_VERSION = '1.4';
+      if (!r.version || String(r.version) < EXPECTED_VERSION) {
+        const msg = `Apps Script is v${r.version || '?'} — expected v${EXPECTED_VERSION}. Sheet will use the old column layout (no Timestamp/SystemEmail). Redeploy via: Apps Script → Deploy → Manage deployments → Edit → New version.`;
+        console.warn('[CineLedger]', msg);
+        flashToast('info', `Stale Apps Script (v${r.version || '?'}) — redeploy needed`);
+      }
       patchProject(projectId, {
         driveStatus: 'synced',
         driveFolderId: r.folderId,
@@ -1734,43 +1745,50 @@ export default function App() {
 
   // ----- Bill save (auto-creates project/parties if new) -----
   const saveBill = (bill) => {
-    // Determine the bill's project — existing match or freshly created.
-    // addProject() returns the project object even when a new one is created,
-    // so we can use it directly without waiting for state to flush.
-    let billProject = bill.project
-      ? projects.find(p => p.name.toLowerCase() === bill.project.toLowerCase())
-      : null;
-    if (!billProject && bill.project) {
-      billProject = addProject({ name: bill.project });
-    }
+    try {
+      console.info('[CineLedger] saveBill called with:', { id: bill.id, project: bill.project, billNumber: bill.billNumber, isEdit: Boolean(bill.id) });
+      // Determine the bill's project — existing match or freshly created.
+      let billProject = bill.project
+        ? projects.find(p => p.name.toLowerCase() === bill.project.toLowerCase())
+        : null;
+      if (!billProject && bill.project) {
+        billProject = addProject({ name: bill.project });
+        console.info('[CineLedger] saveBill created new project:', billProject?.name);
+      }
 
-    // Auto-add parties
-    let nextParties = parties;
-    nextParties = addPartyIfNew(bill.paidBy, nextParties);
-    nextParties = addPartyIfNew(bill.paidTo, nextParties);
+      // Auto-add parties
+      let nextParties = parties;
+      nextParties = addPartyIfNew(bill.paidBy, nextParties);
+      nextParties = addPartyIfNew(bill.paidTo, nextParties);
 
-    const isEdit = Boolean(bill.id);
-    const newBill = isEdit
-      ? { ...bill }  // updating: preserve existing id + createdAt + createdBy
-      : { ...bill, id: uid(), createdAt: new Date().toISOString(), createdBy: authUser?.email || '' };
-    const nextBills = isEdit
-      ? bills.map(b => b.id === bill.id ? { ...b, ...newBill, updatedAt: new Date().toISOString() } : b)
-      : [newBill, ...bills];
-    persistBills(nextBills);
-    flashToast('success', isEdit ? 'Bill updated · syncing…' : 'Bill saved · syncing to Drive…');
+      const isEdit = Boolean(bill.id);
+      const newBill = isEdit
+        ? { ...bill }  // updating: preserve existing id + createdAt + createdBy
+        : { ...bill, id: uid(), createdAt: new Date().toISOString(), createdBy: authUser?.email || '' };
+      const nextBills = isEdit
+        ? bills.map(b => b.id === bill.id ? { ...b, ...newBill, updatedAt: new Date().toISOString() } : b)
+        : [newBill, ...bills];
+      persistBills(nextBills);
+      console.info('[CineLedger] saveBill persisted · totalBills:', nextBills.length);
+      flashToast('success', isEdit ? 'Bill updated · syncing…' : 'Bill saved · syncing to Drive…');
 
-    // Auto-sync — we always have a bundled DEFAULT_SCRIPT_URL, so just go.
-    if (billProject) {
-      syncProjectBills(billProject.id, {
-        silent: true,
-        billsOverride: nextBills,
-        projectOverride: billProject,
-      })
-        .then(r => {
-          if (r && r.ok) flashToast('success', 'Synced to Drive');
-          else if (r && r.error) flashToast('info', 'Auto-sync failed — open Projects to retry');
+      // Auto-sync — we always have a bundled DEFAULT_SCRIPT_URL, so just go.
+      if (billProject) {
+        syncProjectBills(billProject.id, {
+          silent: true,
+          billsOverride: nextBills,
+          projectOverride: billProject,
         })
-        .catch(e => console.warn('Auto-sync failed:', e));
+          .then(r => {
+            if (r && r.ok) flashToast('success', 'Synced to Drive');
+            else if (r && r.error) flashToast('info', 'Auto-sync failed — open Projects to retry');
+          })
+          .catch(e => console.warn('[CineLedger] Auto-sync failed:', e));
+      }
+    } catch (err) {
+      console.error('[CineLedger] saveBill threw:', err);
+      flashToast('info', 'Save failed: ' + (err.message || 'see console'));
+      throw err; // re-throw so caller (BillForm runSave) can show its own alert
     }
   };
 
@@ -2861,20 +2879,20 @@ function BillForm({ onSave, onSaveAndView, goToLedger, projects, parties, bills,
 
   const validate = () => {
     const e = {};
-    if (!form.project.trim()) e.project = 'Required';
+    if (!form.project || !form.project.trim()) e.project = 'Required';
     if (!form.department) e.department = 'Required';
-    if (!form.paidBy.trim()) e.paidBy = 'Required';
-    if (!form.paidTo.trim()) e.paidTo = 'Required';
+    if (!form.paidBy || !form.paidBy.trim()) e.paidBy = 'Required';
+    if (!form.paidTo || !form.paidTo.trim()) e.paidTo = 'Required';
     if (!form.amount || Number(form.amount) <= 0) e.amount = 'Enter a valid amount';
     setErrors(e);
-    return Object.keys(e).length === 0;
+    return { ok: Object.keys(e).length === 0, errors: e };
   };
 
   // Two flows now:
   //  - submitAndContinue: save + clear form, stay on form for another entry
   //  - submitAndView: save + navigate to the table view
   const buildPayload = () => {
-    const finalBillNo = form.billNumber.trim() || generateBillNo(form.project, projects, bills);
+    const finalBillNo = (form.billNumber || '').trim() || generateBillNo(form.project, projects, bills);
     return { ...form, billNumber: finalBillNo, amount: Number(form.amount) };
   };
   const resetForm = () => {
@@ -2885,18 +2903,45 @@ function BillForm({ onSave, onSaveAndView, goToLedger, projects, parties, bills,
     });
     setErrors({});
   };
-  const submitAndContinue = () => {
-    if (!validate()) return;
-    onSave(buildPayload());
-    if (!isEditing) resetForm();
-    // Editing: the parent will close the drawer/redirect as it sees fit.
+  // Common save runner — diagnoses validation failures, catches save errors,
+  // surfaces both visibly so a silent miss never happens again.
+  const runSave = (mode) => {
+    const v = validate();
+    console.info('[CineLedger] runSave invoked · mode:', mode, '· valid:', v.ok, '· errors:', v.errors, '· form:', form);
+    if (!v.ok) {
+      const missing = Object.keys(v.errors).map(k => k.replace(/([A-Z])/g, ' $1')).join(', ');
+      try {
+        if (typeof window !== 'undefined' && typeof window.alert === 'function') {
+          window.alert('Please complete: ' + missing);
+        }
+      } catch (_) {}
+      return;
+    }
+    let payload;
+    try {
+      payload = buildPayload();
+    } catch (err) {
+      console.error('[CineLedger] buildPayload threw:', err);
+      window.alert('Could not build payload: ' + (err.message || err));
+      return;
+    }
+    try {
+      if (mode === 'view' && onSaveAndView) {
+        onSaveAndView(payload);
+      } else if (mode === 'view') {
+        onSave(payload);
+        setTimeout(() => { if (goToLedger) goToLedger(); }, 400);
+      } else {
+        onSave(payload);
+      }
+      if (!isEditing) resetForm();
+    } catch (err) {
+      console.error('[CineLedger] save threw:', err);
+      window.alert('Save failed: ' + (err.message || 'unknown error — see console'));
+    }
   };
-  const submitAndView = () => {
-    if (!validate()) return;
-    if (onSaveAndView) onSaveAndView(buildPayload());
-    else { onSave(buildPayload()); setTimeout(goToLedger, 400); }
-    if (!isEditing) resetForm();
-  };
+  const submitAndContinue = () => runSave('continue');
+  const submitAndView     = () => runSave('view');
 
   const activeMode = PAYMENT_MODES.find(m => m.value === form.paymentMode);
   // Paid By / Paid To dropdowns are scoped to the CURRENT project only
