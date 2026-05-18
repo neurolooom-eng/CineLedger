@@ -1142,6 +1142,7 @@ const driveAdapter = {
   getConfig(scriptUrl)                         { return this.call(scriptUrl, 'getConfig'); },
   updateConfig(scriptUrl, row)                 { return this.call(scriptUrl, 'updateConfig', { row }); },
   deleteProject(scriptUrl, projectName)        { return this.call(scriptUrl, 'deleteProject', { projectName }); },
+  fetchProjectBills(scriptUrl, projectName)    { return this.call(scriptUrl, 'fetchProjectBills', { projectName }); },
   syncProject(scriptUrl, projectName, prefix, bills) {
     return this.call(scriptUrl, 'syncProject', { projectName, prefix, bills });
   },
@@ -1528,7 +1529,7 @@ export default function App() {
       // Hard-warn the admin if the deployed Apps Script is older than v1.4 —
       // older deployments overwrite the Bills sheet with the pre-Timestamp/SystemEmail
       // header layout, which looks like a regression but is really a stale backend.
-      const EXPECTED_VERSION = '1.4';
+      const EXPECTED_VERSION = '1.5';
       if (!r.version || String(r.version) < EXPECTED_VERSION) {
         const msg = `Apps Script is v${r.version || '?'} — expected v${EXPECTED_VERSION}. Sheet will use the old column layout (no Timestamp/SystemEmail). Redeploy via: Apps Script → Deploy → Manage deployments → Edit → New version.`;
         console.warn('[CineLedger]', msg);
@@ -1840,8 +1841,9 @@ export default function App() {
       dataLayer.set('cine-auth', user);
       setWantsLogin(false);
       // Coming from demo — swap in the real admin data, then refresh from Drive
-      // (recovers projects if local cache is empty) and force-sync every project
-      // so the bills/attachments we see locally match the latest Drive state.
+      // (recovers projects if local cache is empty) and pull bills from every
+      // project's sheet (so a fresh device sees everything that other devices
+      // already wrote). Then push back so any local-only bills also reach Drive.
       (async () => {
         const loadedProjects = await reloadRealData();
         let projectsToSync = loadedProjects;
@@ -1855,15 +1857,61 @@ export default function App() {
           const r = await refreshConfigFromDrive({ silent: true });
           if (r && Array.isArray(r.projects)) projectsToSync = r.projects;
         }
+
+        // ===== PULL bills from Drive into local state =====
+        // This is what makes cross-device sync work — without it, a fresh
+        // device only sees bills it created locally.
         if (projectsToSync.length > 0) {
-          flashToast('info', `Syncing ${projectsToSync.length} project${projectsToSync.length === 1 ? '' : 's'}…`);
-          // Sync each project in parallel. Each call is idempotent and silent.
-          const results = await Promise.allSettled(
-            projectsToSync.map(p => syncProjectBills(p.id, { silent: true, projectOverride: p }))
-          );
-          const failed = results.filter(r => r.status === 'rejected' || (r.value && !r.value.ok)).length;
-          if (failed === 0) flashToast('success', `All ${projectsToSync.length} project${projectsToSync.length === 1 ? '' : 's'} in sync`);
-          else flashToast('info', `${projectsToSync.length - failed}/${projectsToSync.length} synced · ${failed} failed`);
+          flashToast('info', `Pulling bills from ${projectsToSync.length} project${projectsToSync.length === 1 ? '' : 's'}…`);
+          const remoteBills = [];
+          for (const proj of projectsToSync) {
+            try {
+              const fb = await driveAdapter.fetchProjectBills(DEFAULT_SCRIPT_URL, proj.name);
+              if (fb && Array.isArray(fb.bills)) {
+                remoteBills.push(...fb.bills);
+                console.info('[CineLedger] fetched', fb.bills.length, 'bills for', proj.name);
+              }
+            } catch (err) {
+              // Old Apps Script (pre-v1.5) doesn't know this action — log and move on
+              console.warn('[CineLedger] fetchProjectBills failed for', proj.name, '·', err.message);
+            }
+          }
+
+          // Merge with locally cached bills. Strategy: local wins on ID conflict
+          // (preserves any pending local edits), remote fills gaps.
+          if (remoteBills.length > 0) {
+            const cached = await dataLayer.get('cine-bills', []);
+            const localArr = Array.isArray(cached) ? cached : [];
+            const localIds = new Set(localArr.map(b => b.id).filter(Boolean));
+            const merged = [...localArr];
+            let added = 0;
+            remoteBills.forEach(rb => {
+              if (rb.id && !localIds.has(rb.id)) {
+                merged.push(rb);
+                localIds.add(rb.id);
+                added++;
+              }
+            });
+            if (added > 0) {
+              persistBills(merged);
+              flashToast('success', `Pulled ${added} bill${added === 1 ? '' : 's'} from Drive`);
+            }
+            // After merging, push any local-only bills back to Drive so other
+            // devices see them. The Apps Script's append/update logic ensures
+            // no overwrites.
+            await Promise.allSettled(
+              projectsToSync.map(p => syncProjectBills(p.id, {
+                silent: true,
+                projectOverride: p,
+                billsOverride: merged,
+              }))
+            );
+          } else {
+            // No remote bills (fresh setup or pre-v1.5 script). Just push locals.
+            await Promise.allSettled(
+              projectsToSync.map(p => syncProjectBills(p.id, { silent: true, projectOverride: p }))
+            );
+          }
         }
       })();
       return { ok: true };
