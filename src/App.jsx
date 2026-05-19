@@ -6,7 +6,7 @@ import {
   TrendingUp, Hash, Briefcase, CheckCircle2, Clock, AlertCircle,
   Image as ImageIcon, FileIcon, Receipt, ArrowLeft, ArrowLeftRight, Sun, Moon,
   RefreshCw, Pencil, FolderOpen,
-  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check, Palette, Mail, Sparkles, ArrowRight
+  ExternalLink, Loader2, CloudOff, Cloud, Settings, Check, Palette, Mail, Sparkles, ArrowRight, Eye
 } from 'lucide-react';
 
 
@@ -101,7 +101,7 @@ const PROJECT_COLORS = [
 // ============================================================
 const DRIVE_PARENT_FOLDER_ID = '1Q-eSFalmrtrzZVh0Ukgrl08S9RT8bF2G';
 // Seed value for the Apps Script URL. Set to '' if you don't want a default.
-const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyNL1m37dEKOrjXK34u6lXDNnY_fA5prhaftbLLaiUuY_Jytxb-T8Z4Q1n1vTj3-OnC/exec';
+const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxpf5WmmoaqqwUe012Nj2NyetpbKgNlvdlvk3bXpPNpnmTJnuB-GKqGVKhHSFvzpNxMlQ/exec';
 
 // ============================================================
 // AUTHORIZED ADMIN CREDENTIALS (hard-coded soft gate)
@@ -405,7 +405,12 @@ function PalettePicker({ current, onChange, columns = 6 }) {
 // Slim banner shown above the Header during a demo session.
 // The Sign In and Contact Us CTAs now live in the Header itself —
 // this strip is just a passive "you are in a demo" indicator.
-function DemoBanner() {
+function DemoBanner({ viewCount }) {
+  const formatted = viewCount == null
+    ? null
+    : viewCount >= 1000
+      ? (viewCount / 1000).toFixed(viewCount >= 10000 ? 0 : 1).replace(/\.0$/, '') + 'K'
+      : String(viewCount);
   return (
     <div
       className="px-3 sm:px-4 py-1.5 flex items-center justify-center gap-2 text-white text-[11px] sm:text-xs"
@@ -417,7 +422,16 @@ function DemoBanner() {
       <Clapperboard className="w-3.5 h-3.5 flex-shrink-0" />
       <span className="font-bold tracking-wider">DEMO MODE</span>
       <span className="opacity-80">·</span>
-      <span className="opacity-90 truncate">Sample data · session-only · no Drive sync</span>
+      <span className="opacity-90 truncate">Sample data · session-only</span>
+      {formatted != null && (
+        <>
+          <span className="opacity-80 hidden sm:inline">·</span>
+          <span className="hidden sm:inline-flex items-center gap-1 font-mono font-bold" title={`${viewCount.toLocaleString()} visits`}>
+            <Eye className="w-3 h-3" />
+            {formatted}
+          </span>
+        </>
+      )}
     </div>
   );
 }
@@ -1143,6 +1157,8 @@ const driveAdapter = {
   updateConfig(scriptUrl, row)                 { return this.call(scriptUrl, 'updateConfig', { row }); },
   deleteProject(scriptUrl, projectName)        { return this.call(scriptUrl, 'deleteProject', { projectName }); },
   fetchProjectBills(scriptUrl, projectName)    { return this.call(scriptUrl, 'fetchProjectBills', { projectName }); },
+  recordView(scriptUrl, sessionId, page)       { return this.call(scriptUrl, 'recordView', { sessionId, page }); },
+  getViewCount(scriptUrl)                      { return this.call(scriptUrl, 'getViewCount'); },
   syncProject(scriptUrl, projectName, prefix, bills) {
     return this.call(scriptUrl, 'syncProject', { projectName, prefix, bills });
   },
@@ -1370,6 +1386,11 @@ export default function App() {
     dataLayer.setRaw('cine-palette', id);
   };
 
+  // View counter — tracks unique demo sessions. Stored in Drive (Views tab on
+  // the Leads sheet). The fetched count is displayed in the demo banner as
+  // social proof for prospects.
+  const [viewCount, setViewCount] = useState(null);
+
   useEffect(() => {
     (async () => {
       const [b, pr, pa, t, sel, st, au, pal] = await Promise.all([
@@ -1414,6 +1435,55 @@ export default function App() {
       setLoaded(true);
     })();
   }, []);
+
+  // ============================================================
+  // View counter — fires once per session, demo only.
+  // sessionId is generated lazily from sessionStorage so refreshes don't
+  // double-count. The Apps Script also dedupes by sessionId server-side.
+  // ============================================================
+  useEffect(() => {
+    if (!loaded) return;
+    if (!authUser || authUser.role !== 'demo') return;
+    if (typeof window === 'undefined') return;
+
+    let sid;
+    try {
+      sid = window.sessionStorage.getItem('cine-sid');
+      if (!sid) {
+        // Crypto-strong random ID; fall back to Math.random if crypto missing
+        if (window.crypto && window.crypto.getRandomValues) {
+          const bytes = new Uint8Array(16);
+          window.crypto.getRandomValues(bytes);
+          sid = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+        } else {
+          sid = 'sid-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
+        }
+        window.sessionStorage.setItem('cine-sid', sid);
+      }
+    } catch (e) {
+      // sessionStorage blocked (e.g., privacy mode) — still record using a
+      // fresh ID; will just look like a new session every page load.
+      sid = 'transient-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+
+    // Best-effort recording. Show count on success; silently fall back to a
+    // getViewCount call on failure (so the banner still has something to show
+    // if recordView is unavailable on the deployment).
+    driveAdapter.recordView(DEFAULT_SCRIPT_URL, sid, 'landing')
+      .then(r => {
+        if (r && typeof r.count === 'number') {
+          setViewCount(r.count);
+          console.info('[CineLedger] view recorded · count:', r.count, '· deduped:', r.deduped);
+        }
+      })
+      .catch(err => {
+        console.warn('[CineLedger] recordView failed (old deployment?):', err.message);
+        // Fall back to just reading the count if the action exists
+        driveAdapter.getViewCount(DEFAULT_SCRIPT_URL)
+          .then(r => { if (r && typeof r.count === 'number') setViewCount(r.count); })
+          .catch(() => {});
+      });
+  }, [loaded, authUser]);
 
   // Auto-refresh from Drive Config when an admin session regains focus
   // (e.g. switching back to the tab after editing the Config sheet directly).
@@ -1529,7 +1599,7 @@ export default function App() {
       // Hard-warn the admin if the deployed Apps Script is older than v1.4 —
       // older deployments overwrite the Bills sheet with the pre-Timestamp/SystemEmail
       // header layout, which looks like a regression but is really a stale backend.
-      const EXPECTED_VERSION = '1.5';
+      const EXPECTED_VERSION = '1.6';
       if (!r.version || String(r.version) < EXPECTED_VERSION) {
         const msg = `Apps Script is v${r.version || '?'} — expected v${EXPECTED_VERSION}. Sheet will use the old column layout (no Timestamp/SystemEmail). Redeploy via: Apps Script → Deploy → Manage deployments → Edit → New version.`;
         console.warn('[CineLedger]', msg);
@@ -2071,7 +2141,7 @@ export default function App() {
         <LoginScreen onLogin={tryLogin} onStartDemo={startDemo} theme={theme} toggleTheme={toggleTheme} />
       ) : (
         <>
-          {isDemo && <DemoBanner />}
+          {isDemo && <DemoBanner viewCount={viewCount} />}
           <MobileBestViewedBanner />
           <Header
             screen={screen}
